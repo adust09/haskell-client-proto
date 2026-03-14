@@ -3,6 +3,7 @@ name:            lean-consensus
 version:         0.1.0.0
 synopsis:        Haskell Lean Consensus client for pq-devnet-3
 license:         MIT
+license-file:    LICENSE
 build-type:      Simple
 
 common warnings
@@ -26,9 +27,15 @@ library
         TypeApplications
     exposed-modules:
         LeanConsensus
+        SSZ
     build-depends:
         base          >= 4.18  && < 5
       , bytestring    >= 0.11  && < 0.13
+      , crypton       >= 0.34  && < 1.1
+      , memory        >= 0.18  && < 0.19
+      , vector        >= 0.13  && < 0.14
+      , containers    >= 0.6   && < 0.8
+      , text          >= 2.0   && < 2.2
 
 executable lean-consensus
     import:           warnings
@@ -53,5 +60,9 @@ test-suite lean-consensus-test
     build-depends:
         base            >= 4.18 && < 5
       , lean-consensus
+      , bytestring
+      , vector
       , tasty           >= 1.4  && < 1.6
       , tasty-hunit     >= 0.10 && < 0.11
+      , tasty-quickcheck >= 0.10 && < 0.12
+      , QuickCheck      >= 2.14 && < 2.16
