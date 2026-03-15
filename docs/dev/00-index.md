@@ -11,6 +11,7 @@ Implementation guides for the Haskell Lean Consensus client (pq-devnet-3).
 | 03 | [Consensus Types](03-consensus-types.md) | All Haskell type definitions: Checkpoint, Attestation, BeaconBlock, BeaconState, etc. |
 | 04 | [Implementation Roadmap](04-implementation-roadmap.md) | Phase 1–5 task breakdown with checkboxes, exit criteria, risk register |
 | 05 | [Library Decisions](05-library-decisions.md) | SSZ (new vs fork), crypton, rust-libp2p FFI, RocksDB, concurrency model |
+| 06 | [FFI ABI Proposal](06-ffi-abi-proposal.md) | leanSig/leanMultisig C ABI wrapper design, error codes, memory ownership, open questions |
 
 ## Quick Reference
 

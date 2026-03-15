@@ -91,25 +91,37 @@ Reference: [03-consensus-types.md](03-consensus-types.md)
 
 **Goal**: Sign/verify with XMSS, aggregate/verify with leanMultisig.
 
-### Step 2.1: leanSig FFI
+### Step 2.1: FFI ABI Proposal
 
-- [ ] Obtain leanSig C library (headers + shared lib)
-- [ ] `Crypto.LeanSig` — FFI bindings
+- [x] Study ethlambda's `crypto` crate for API patterns
+- [x] Design C ABI wrapper for leanSig and leanMultisig
+- [x] Document ABI hygiene rules, error codes, memory ownership
+- [x] Classify decisions by status (Confirmed/Inferred/Proposed/Unknown)
+- [x] Identify open questions and verification gates
+- Deliverable: [06-ffi-abi-proposal.md](06-ffi-abi-proposal.md)
+
+### Step 2.2: SHA-256 + Poseidon2 Hashing
+
+- [ ] `Crypto.Hash` — SHA-256 (crypton), Poseidon2 (FFI to leanSig internal if exposed)
+- [ ] `computeSigningRoot`, `computeDomain`
+- [ ] Tests: known vectors, signing root verification
+
+### Step 2.3: leanSig FFI (blocked on ABI verification)
+
+- [ ] Verify all non-Confirmed items in ABI proposal against upstream
+- [ ] `Crypto.LeanSig` — FFI bindings per `06-ffi-abi-proposal.md`
   - [ ] `foreign import ccall` declarations
-  - [ ] `sign :: PrivateKey -> ByteString -> IO XmssSignature`
-  - [ ] `verify :: PublicKey -> ByteString -> XmssSignature -> Bool`
-  - [ ] Key state management (leaf index tracking via `IORef` or `MVar`)
-- [ ] `Crypto.Hash` — SHA-256 (crypton), Poseidon2 (FFI to leanSig internal)
+  - [ ] `sign`, `verify`, `keygen`, key serialization
+  - [ ] Key state management (leaf index via `MVar`, crash-safe persistence)
 - [ ] Tests: sign → verify roundtrip, known test vectors
 
-### Step 2.2: leanMultisig FFI
+### Step 2.4: leanMultisig FFI (blocked on ABI verification)
 
-- [ ] Obtain leanMultisig C/Rust library
-- [ ] `Crypto.LeanMultisig` — FFI bindings
+- [ ] Verify all non-Confirmed items in ABI proposal against upstream
+- [ ] `Crypto.LeanMultisig` — FFI bindings per `06-ffi-abi-proposal.md`
   - [ ] `setupProver :: IO ProverContext`
   - [ ] `setupVerifier :: IO VerifierContext`
-  - [ ] `aggregate :: ProverContext -> [SignedAttestation] -> IO LeanMultisigProof`
-  - [ ] `verifyAggregation :: VerifierContext -> LeanMultisigProof -> AttestationData -> Bitlist n -> IO Bool`
+  - [ ] `aggregate`, `verifyAggregation`
 - [ ] Tests: aggregate → verify roundtrip
 
 ### Phase 2 Exit Criteria

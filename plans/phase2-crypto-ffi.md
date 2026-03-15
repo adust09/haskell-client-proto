@@ -13,25 +13,30 @@ Bind to the leanSig (XMSS) and leanMultisig (zkVM aggregation) C libraries via H
 
 ---
 
-## Step 1: Obtain and Inspect C Libraries
+## Step 1: FFI ABI Proposal
 
 ### Tasks
 
-- Obtain leanSig C library: headers (`lean_sig.h`), shared library (`liblean_sig.so`)
-- Obtain leanMultisig library: headers (`lean_multisig.h`), shared library (`liblean_multisig.so`)
 - Study ethlambda's `crypto` crate FFI code for API patterns
-- Document exact function signatures, memory ownership semantics, error handling conventions
-- Determine exact sizes: XMSS public key size, signature size (expected 3112 bytes), proof size ranges
+- Design C ABI wrapper functions for leanSig (XMSS) and leanMultisig (zkVM aggregation)
+- Document function signatures, memory ownership semantics, error handling conventions
+- Document ABI hygiene rules (nullability, empty-input, out-param, lifetime, threading, versioning)
+- Identify and classify open questions by decision status (Confirmed/Inferred/Proposed/Unknown)
 
 ### Deliverable
 
-A reference document (`docs/dev/06-ffi-api-reference.md`) listing every C function to bind, parameter types, memory ownership, and error codes.
+`docs/dev/06-ffi-abi-proposal.md` — point-in-time C ABI wrapper design with decision status labels, error codes, memory ownership table, and open questions.
 
 ### Completion criteria
 
-- Both libraries build on target platform
-- All C function signatures documented
-- Memory ownership rules understood (who allocates, who frees)
+- All ABI sections present with canonical status labels
+- ABI hygiene rules complete
+- Memory ownership table documented
+- Open questions split into upstream-semantic vs environment blockers
+
+### Verification gate for Steps 3/5
+
+Steps 3 and 5 (implementation) are blocked until all non-Confirmed items in the ABI proposal are verified against upstream. See open questions in `06-ffi-abi-proposal.md`.
 
 ---
 
