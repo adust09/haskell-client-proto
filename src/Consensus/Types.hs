@@ -171,6 +171,8 @@ instance SszEncode SignedAggregatedAttestation where
   sszEncode = genericSszEncode
 instance SszDecode SignedAggregatedAttestation where
   sszDecode = genericSszDecode
+instance SszHashTreeRoot SignedAggregatedAttestation where
+  hashTreeRoot = genericHashTreeRoot
 
 data BeaconBlockBody = BeaconBlockBody
   { bbbAttestations :: !(SszList MAX_ATTESTATIONS SignedAggregatedAttestation)
@@ -182,6 +184,8 @@ instance SszEncode BeaconBlockBody where
   sszEncode = genericSszEncode
 instance SszDecode BeaconBlockBody where
   sszDecode = genericSszDecode
+instance SszHashTreeRoot BeaconBlockBody where
+  hashTreeRoot = genericHashTreeRoot
 
 data BeaconBlock = BeaconBlock
   { bbSlot          :: !Slot
@@ -197,6 +201,8 @@ instance SszEncode BeaconBlock where
   sszEncode = genericSszEncode
 instance SszDecode BeaconBlock where
   sszDecode = genericSszDecode
+instance SszHashTreeRoot BeaconBlock where
+  hashTreeRoot = genericHashTreeRoot
 
 data SignedBeaconBlock = SignedBeaconBlock
   { sbbBlock     :: !BeaconBlock
@@ -209,6 +215,8 @@ instance SszEncode SignedBeaconBlock where
   sszEncode = genericSszEncode
 instance SszDecode SignedBeaconBlock where
   sszDecode = genericSszDecode
+instance SszHashTreeRoot SignedBeaconBlock where
+  hashTreeRoot = genericHashTreeRoot
 
 data BeaconBlockHeader = BeaconBlockHeader
   { bbhSlot          :: !Slot
