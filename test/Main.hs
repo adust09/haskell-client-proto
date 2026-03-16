@@ -12,6 +12,11 @@ import qualified Test.SSZ.Derive as SSZDerive
 import qualified Test.SSZ.List as SSZList
 import qualified Test.SSZ.Merkleization as SSZMerkleization
 import qualified Test.SSZ.Vector as SSZVector
+import qualified Test.Crypto.Hashing as CryptoHashing
+import qualified Test.Crypto.LeanSig as CryptoLeanSig
+import qualified Test.Crypto.KeyManager as CryptoKeyManager
+import qualified Test.Crypto.LeanMultisig as CryptoLeanMultisig
+import qualified Test.Crypto.Operations as CryptoOperations
 
 main :: IO ()
 main = defaultMain tests
@@ -28,4 +33,9 @@ tests = testGroup "lean-consensus"
   , SSZMerkleization.tests
   , SSZDerive.tests
   , ConsensusTypes.tests
+  , CryptoHashing.tests
+  , CryptoLeanSig.tests
+  , CryptoKeyManager.tests
+  , CryptoLeanMultisig.tests
+  , CryptoOperations.tests
   ]

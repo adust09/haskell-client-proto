@@ -16,10 +16,9 @@ module SSZ.Merkleization
   , SszHashTreeRoot (..)
   ) where
 
-import qualified Crypto.Hash as CH
-import qualified Data.ByteArray as BA
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
+import Crypto.Hashing (sha256, sha256Pair)
 import Data.Proxy (Proxy (..))
 import qualified Data.Vector as V
 import Data.Word (Word8, Word16, Word32, Word64)
@@ -29,18 +28,6 @@ import SSZ.Bitlist (Bitlist, unBitlist, bitlistLen)
 import SSZ.Common
 import SSZ.List (SszList, unSszList)
 import SSZ.Vector (SszVector, unSszVector)
-
--- ---------------------------------------------------------------------------
--- SHA-256
--- ---------------------------------------------------------------------------
-
--- | SHA-256 hash via crypton.
-sha256 :: ByteString -> ByteString
-sha256 bs = BA.convert (CH.hash bs :: CH.Digest CH.SHA256)
-
--- | SHA-256 of two concatenated ByteStrings.
-sha256Pair :: ByteString -> ByteString -> ByteString
-sha256Pair a b = sha256 (a <> b)
 
 -- ---------------------------------------------------------------------------
 -- Chunking
@@ -100,7 +87,9 @@ zeroHashes = V.generate 64 go
 merkleize :: [ByteString] -> Word64 -> ByteString
 merkleize chunks limit =
   let depth = if limit <= 1 then 0 else ceilLog2 limit
-  in  go chunks depth 0
+      -- Empty chunk list: start with a zero chunk so the tree is well-formed
+      effectiveChunks = if null chunks then [zeroHashes V.! 0] else chunks
+  in  go effectiveChunks depth 0
   where
     -- Recursively hash pairs up to the root
     go [single] 0 _ = single

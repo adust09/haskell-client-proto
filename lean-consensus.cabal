@@ -40,6 +40,13 @@ library
         SSZ.Vector
         Consensus.Constants
         Consensus.Types
+        Crypto.Error
+        Crypto.Hashing
+        Crypto.SigningRoot
+        Crypto.LeanSig
+        Crypto.KeyManager
+        Crypto.LeanMultisig
+        Crypto.Operations
     build-depends:
         base          >= 4.18  && < 5
       , bytestring    >= 0.11  && < 0.13
@@ -48,6 +55,7 @@ library
       , vector        >= 0.13  && < 0.14
       , containers    >= 0.6   && < 0.8
       , text          >= 2.0   && < 2.2
+      , directory     >= 1.3   && < 1.4
 
 executable lean-consensus
     import:           warnings
@@ -82,12 +90,21 @@ test-suite lean-consensus-test
         Test.SSZ.Support
         Test.SSZ.Vector
         Test.Consensus.Types
+        Test.Crypto.Hashing
+        Test.Crypto.LeanSig
+        Test.Crypto.KeyManager
+        Test.Crypto.LeanMultisig
+        Test.Crypto.Operations
     build-depends:
         base            >= 4.18 && < 5
       , lean-consensus
       , bytestring
       , vector
+      , filepath
       , tasty           >= 1.4  && < 1.6
       , tasty-hunit     >= 0.10 && < 0.11
       , tasty-quickcheck >= 0.10 && < 0.12
       , QuickCheck      >= 2.14 && < 2.16
+      , directory       >= 1.3  && < 1.4
+      , temporary       >= 1.3  && < 1.4
+      , async           >= 2.2  && < 2.3
