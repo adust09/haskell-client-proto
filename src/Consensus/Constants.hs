@@ -25,9 +25,15 @@ module Consensus.Constants
     -- * Crypto sizes
   , xmssSignatureSize
   , xmssPubkeySize
+    -- * Subnets
+  , totalSubnets
     -- * Networking
   , gossipsubMeshSize
   , gossipsubHeartbeatMs
+    -- * Slot phases (microseconds)
+  , proposalPhaseEnd
+  , votingPhaseEnd
+  , confirmationPhaseEnd
   ) where
 
 import Data.Word (Word64)
@@ -101,3 +107,27 @@ gossipsubMeshSize = 8
 
 gossipsubHeartbeatMs :: Int
 gossipsubHeartbeatMs = 700
+
+-- ---------------------------------------------------------------------------
+-- Subnets
+-- ---------------------------------------------------------------------------
+
+-- | Total number of attestation subnets.
+totalSubnets :: Word64
+totalSubnets = 4
+
+-- ---------------------------------------------------------------------------
+-- Slot phases (microseconds from slot start)
+-- ---------------------------------------------------------------------------
+
+-- | End of proposal phase (800ms).
+proposalPhaseEnd :: Int
+proposalPhaseEnd = 800_000
+
+-- | End of voting phase (2400ms).
+votingPhaseEnd :: Int
+votingPhaseEnd = 2_400_000
+
+-- | End of confirmation phase (3200ms).
+confirmationPhaseEnd :: Int
+confirmationPhaseEnd = 3_200_000

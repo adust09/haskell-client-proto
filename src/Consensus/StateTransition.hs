@@ -1,0 +1,347 @@
+-- | State transition logic for 3SF-mini consensus.
+module Consensus.StateTransition
+  ( -- * Errors
+    StateTransitionError (..)
+    -- * Validator helpers
+  , isActiveValidator
+  , getProposerIndex
+  , getAttestationSubnet
+    -- * Per-slot processing
+  , processSlot
+  , processSlots
+    -- * Block processing
+  , processBlockHeader
+  , processAttestations
+  , processAttestation
+  , processJustificationFinalization
+  , expandAggregationBits
+    -- * Slashing
+  , checkSlashingConditions
+  , slashValidator
+    -- * Full state transition
+  , stateTransition
+  ) where
+
+import Data.List (foldl', sort)
+import qualified Data.Map.Strict as Map
+import qualified Data.Set as Set
+import qualified Data.Vector as V
+import Data.Word (Word64)
+import Data.Proxy (Proxy (..))
+import GHC.TypeNats (natVal)
+
+import Consensus.Constants
+import Consensus.Types
+import SSZ.Bitlist (Bitlist, bitlistLen, getBitlistBit)
+import SSZ.Common (mkBytesN, zeroN)
+import SSZ.List (SszList, mkSszList, unSszList)
+import SSZ.Merkleization (SszHashTreeRoot (..))
+import SSZ.Vector (mkSszVector, unSszVector)
+
+-- ---------------------------------------------------------------------------
+-- Errors
+-- ---------------------------------------------------------------------------
+
+data StateTransitionError
+  = SlotTooOld Slot Slot
+  | InvalidSlot Slot Slot
+  | InvalidProposer ValidatorIndex ValidatorIndex
+  | InvalidParentRoot
+  | DuplicateBlock
+  | InvalidSourceCheckpoint
+  | InvalidAttestationSlot Slot Slot
+  | AttestationListError String
+  | BlockProcessingError String
+  deriving stock (Eq, Show)
+
+-- ---------------------------------------------------------------------------
+-- Validator helpers
+-- ---------------------------------------------------------------------------
+
+isActiveValidator :: Validator -> Slot -> Bool
+isActiveValidator v slot =
+  vActivationSlot v <= slot && slot < vExitSlot v && not (vSlashed v)
+
+-- | Proposer selection: slot % numActiveValidators.
+-- Assumption: verify against leanSpec's actual selection.
+getProposerIndex :: BeaconState -> ValidatorIndex
+getProposerIndex bs =
+  let validators = unSszList (bsValidators bs)
+      activeIndices =
+        [ fromIntegral i :: ValidatorIndex
+        | (i, v) <- zip [(0 :: Int)..] validators
+        , isActiveValidator v (bsSlot bs)
+        ]
+      numActive = fromIntegral (length activeIndices) :: Word64
+  in  if numActive == 0
+        then 0
+        else activeIndices !! fromIntegral (bsSlot bs `mod` numActive)
+
+-- | Deterministic subnet assignment: validatorIndex % totalSubnets.
+getAttestationSubnet :: ValidatorIndex -> SubnetId
+getAttestationSubnet vi = vi `mod` totalSubnets
+
+-- ---------------------------------------------------------------------------
+-- Per-slot processing
+-- ---------------------------------------------------------------------------
+
+-- | Process a single slot: cache roots, prune stale attestations, increment.
+processSlot :: BeaconState -> BeaconState
+processSlot bs =
+  let slot = bsSlot bs
+      slotsPerHist = fromIntegral (natVal (Proxy @SLOTS_PER_HISTORICAL_ROOT)) :: Word64
+      slotIdx = fromIntegral (slot `mod` slotsPerHist)
+
+      -- Cache state root
+      stateRoot = toRoot bs
+      stateRootsVec = unSszVector (bsStateRoots bs)
+      newStateRoots = forceRight $
+        mkSszVector @SLOTS_PER_HISTORICAL_ROOT (stateRootsVec V.// [(slotIdx, stateRoot)])
+
+      -- Cache block root
+      blockRoot = toRoot (bsLatestBlockHeader bs)
+      blockRootsVec = unSszVector (bsBlockRoots bs)
+      newBlockRoots = forceRight $
+        mkSszVector @SLOTS_PER_HISTORICAL_ROOT (blockRootsVec V.// [(slotIdx, blockRoot)])
+
+      -- Prune stale attestations
+      newSlot = slot + 1
+      retentionWindow = slotsToFinality + 1
+      currentAtts = unSszList (bsCurrentAttestations bs)
+      prunedAtts = filter
+        (\saa -> adSlot (saaData saa) + retentionWindow >= newSlot)
+        currentAtts
+      newAtts = forceRight $ mkSszList @MAX_ATTESTATIONS_STATE prunedAtts
+
+  in  bs { bsSlot = newSlot
+         , bsStateRoots = newStateRoots
+         , bsBlockRoots = newBlockRoots
+         , bsCurrentAttestations = newAtts
+         }
+
+-- | Advance state to the target slot.
+processSlots :: BeaconState -> Slot -> Either StateTransitionError BeaconState
+processSlots bs target
+  | target == bsSlot bs = Right bs
+  | target < bsSlot bs  = Left (SlotTooOld target (bsSlot bs))
+  | otherwise            = processSlots (processSlot bs) target
+
+-- ---------------------------------------------------------------------------
+-- Block processing
+-- ---------------------------------------------------------------------------
+
+processBlockHeader :: BeaconState -> BeaconBlock -> Either StateTransitionError BeaconState
+processBlockHeader bs block = do
+  if bbSlot block /= bsSlot bs
+    then Left (InvalidSlot (bbSlot block) (bsSlot bs))
+    else Right ()
+
+  let expectedProposer = getProposerIndex bs
+  if bbProposerIndex block /= expectedProposer
+    then Left (InvalidProposer (bbProposerIndex block) expectedProposer)
+    else Right ()
+
+  let parentRoot = toRoot (bsLatestBlockHeader bs)
+  if bbParentRoot block /= parentRoot
+    then Left InvalidParentRoot
+    else Right ()
+
+  let bodyRoot = toRoot (bbBody block)
+      newHeader = BeaconBlockHeader
+        { bbhSlot          = bbSlot block
+        , bbhProposerIndex = bbProposerIndex block
+        , bbhParentRoot    = bbParentRoot block
+        , bbhStateRoot     = zeroN @32
+        , bbhBodyRoot      = bodyRoot
+        }
+  Right bs { bsLatestBlockHeader = newHeader }
+
+-- | Expand aggregation bits to validator indices for a given subnet.
+expandAggregationBits
+  :: SszList VALIDATOR_REGISTRY_LIMIT Validator
+  -> SubnetId
+  -> Bitlist n
+  -> [ValidatorIndex]
+expandAggregationBits validators subnetId bits =
+  let allVals = unSszList validators
+      subnetVals = sort
+        [ fromIntegral i :: ValidatorIndex
+        | (i, _) <- zip [(0 :: Int)..] allVals
+        , getAttestationSubnet (fromIntegral i) == subnetId
+        ]
+      numBits = bitlistLen bits
+  in  [ subnetVals !! idx
+      | idx <- [0 .. min (numBits - 1) (length subnetVals - 1)]
+      , getBitlistBit bits idx
+      ]
+
+processAttestation
+  :: BeaconState
+  -> SignedAggregatedAttestation
+  -> Either StateTransitionError BeaconState
+processAttestation bs saa = do
+  let ad = saaData saa
+      attSlot = adSlot ad
+
+  if attSlot >= bsSlot bs
+    then Left (InvalidAttestationSlot attSlot (bsSlot bs))
+    else Right ()
+
+  -- Source must match justified or finalized (devnet fallback)
+  let sourceOk = adSourceCheckpoint ad == bsJustifiedCheckpoint bs
+              || adSourceCheckpoint ad == bsFinalizedCheckpoint bs
+  if not sourceOk
+    then Left InvalidSourceCheckpoint
+    else Right ()
+
+  let currentAtts = unSszList (bsCurrentAttestations bs)
+  case mkSszList @MAX_ATTESTATIONS_STATE (currentAtts ++ [saa]) of
+    Left _   -> Left (AttestationListError "attestation list overflow")
+    Right newAtts -> Right bs { bsCurrentAttestations = newAtts }
+
+processAttestations
+  :: BeaconState
+  -> [SignedAggregatedAttestation]
+  -> Either StateTransitionError BeaconState
+processAttestations = foldl' step . Right
+  where
+    step (Left err) _ = Left err
+    step (Right bs) saa = processAttestation bs saa
+
+-- | Justification/finalization: count unique votes per target, check 2/3.
+processJustificationFinalization :: BeaconState -> BeaconState
+processJustificationFinalization bs =
+  let validators = unSszList (bsValidators bs)
+      totalActive = sum
+        [ vEffectiveBalance v
+        | v <- validators
+        , isActiveValidator v (bsSlot bs)
+        ]
+
+      attestations = unSszList (bsCurrentAttestations bs)
+
+      -- Count votes with deduplication by (validatorIndex, targetRoot)
+      (voteMap, _seen) = foldl' countAttestation (Map.empty, Set.empty) attestations
+
+      -- Find justified checkpoints (>= 2/3 of total active balance)
+      justifiedCps =
+        [ (cp, w) | (cp, w) <- Map.toList voteMap, w * 3 >= totalActive * 2 ]
+
+      newJustified = case justifiedCps of
+        [] -> bsJustifiedCheckpoint bs
+        xs -> fst $ foldl1 (\a b -> if cpSlot (fst a) >= cpSlot (fst b) then a else b) xs
+
+      -- Finalization: if we have a new justified checkpoint and the old justified
+      -- was the finalized checkpoint, then finalize the old justified
+      newFinalized
+        | newJustified /= bsJustifiedCheckpoint bs
+        , bsJustifiedCheckpoint bs == bsFinalizedCheckpoint bs
+        = bsJustifiedCheckpoint bs
+        | newJustified /= bsJustifiedCheckpoint bs
+        = bsFinalizedCheckpoint bs
+        | otherwise
+        = bsFinalizedCheckpoint bs
+
+  in  bs { bsJustifiedCheckpoint = newJustified
+         , bsFinalizedCheckpoint = newFinalized
+         }
+  where
+    countAttestation (voteAcc, seenAcc) saa =
+      let ad = saaData saa
+          target = adTargetCheckpoint ad
+          subnetId = adSlot ad `mod` totalSubnets
+          voterIndices = expandAggregationBits (bsValidators bs) subnetId (saaAggregationBits saa)
+          validators = unSszList (bsValidators bs)
+      in  foldl' (\(m, seen) vi ->
+            let dedupKey = (vi, cpRoot target)
+            in  if Set.member dedupKey seen
+                  then (m, seen)
+                  else
+                    let bal = validatorBalance validators vi
+                        active = case safeIndex validators (fromIntegral vi) of
+                          Just v  -> isActiveValidator v (bsSlot bs)
+                          Nothing -> False
+                    in  if active
+                          then (Map.insertWith (+) target bal m, Set.insert dedupKey seen)
+                          else (m, seen)
+          ) (voteAcc, seenAcc) voterIndices
+
+-- ---------------------------------------------------------------------------
+-- Slashing
+-- ---------------------------------------------------------------------------
+
+checkSlashingConditions :: [AttestationData] -> AttestationData -> Either SlashingEvidence ()
+checkSlashingConditions history newVote =
+  case findSlashable history newVote of
+    Just evidence -> Left evidence
+    Nothing       -> Right ()
+
+findSlashable :: [AttestationData] -> AttestationData -> Maybe SlashingEvidence
+findSlashable [] _ = Nothing
+findSlashable (old : rest) newVote
+  | adSlot old == adSlot newVote && old /= newVote =
+      Just (DoubleVote old newVote)
+  | adSlot newVote < adSlot old
+  , cpSlot (adTargetCheckpoint newVote) > cpSlot (adTargetCheckpoint old) =
+      Just (SurroundVote old newVote)
+  | adSlot old < adSlot newVote
+  , cpSlot (adTargetCheckpoint old) > cpSlot (adTargetCheckpoint newVote) =
+      Just (SurroundVote old newVote)
+  | otherwise = findSlashable rest newVote
+
+slashValidator :: BeaconState -> ValidatorIndex -> BeaconState
+slashValidator bs vi =
+  let validators = unSszList (bsValidators bs)
+      idx = fromIntegral vi
+  in  if idx >= length validators
+        then bs
+        else
+          let v = validators !! idx
+              slashedV = v { vSlashed = True, vEffectiveBalance = 0 }
+              newVals = take idx validators ++ [slashedV] ++ drop (idx + 1) validators
+          in  case mkSszList @VALIDATOR_REGISTRY_LIMIT newVals of
+                Right sl -> bs { bsValidators = sl }
+                Left _   -> bs
+
+-- ---------------------------------------------------------------------------
+-- Full state transition
+-- ---------------------------------------------------------------------------
+
+stateTransition
+  :: BeaconState
+  -> SignedBeaconBlock
+  -> Bool
+  -> Either StateTransitionError BeaconState
+stateTransition bs signedBlock _validateSigs = do
+  let block = sbbBlock signedBlock
+  bs1 <- processSlots bs (bbSlot block)
+  bs2 <- processBlockHeader bs1 block
+  let atts = unSszList (bbbAttestations (bbBody block))
+  bs3 <- processAttestations bs2 atts
+  let bs4 = processJustificationFinalization bs3
+  Right bs4
+
+-- ---------------------------------------------------------------------------
+-- Internal helpers
+-- ---------------------------------------------------------------------------
+
+forceRight :: Either e a -> a
+forceRight (Right a) = a
+forceRight (Left _)  = error "forceRight: unexpected Left"
+
+-- | Convert hashTreeRoot output (ByteString) to Root (Bytes32).
+toRoot :: SszHashTreeRoot a => a -> Root
+toRoot a = case mkBytesN @32 (hashTreeRoot a) of
+  Right r -> r
+  Left _  -> error "toRoot: hashTreeRoot did not produce 32 bytes"
+
+validatorBalance :: [Validator] -> ValidatorIndex -> Gwei
+validatorBalance validators vi =
+  case safeIndex validators (fromIntegral vi) of
+    Just v  -> vEffectiveBalance v
+    Nothing -> 0
+
+safeIndex :: [a] -> Int -> Maybe a
+safeIndex xs i
+  | i < 0 || i >= length xs = Nothing
+  | otherwise                = Just (xs !! i)

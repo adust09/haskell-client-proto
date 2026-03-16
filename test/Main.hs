@@ -17,6 +17,10 @@ import qualified Test.Crypto.LeanSig as CryptoLeanSig
 import qualified Test.Crypto.KeyManager as CryptoKeyManager
 import qualified Test.Crypto.LeanMultisig as CryptoLeanMultisig
 import qualified Test.Crypto.Operations as CryptoOperations
+import qualified Test.Consensus.SlotTimer as SlotTimer
+import qualified Test.Consensus.StateTransition as StateTransition
+import qualified Test.Consensus.ForkChoice as ForkChoice
+import qualified Test.Consensus.Integration as Integration
 
 main :: IO ()
 main = defaultMain tests
@@ -38,4 +42,8 @@ tests = testGroup "lean-consensus"
   , CryptoKeyManager.tests
   , CryptoLeanMultisig.tests
   , CryptoOperations.tests
+  , SlotTimer.tests
+  , StateTransition.tests
+  , ForkChoice.tests
+  , Integration.tests
   ]
