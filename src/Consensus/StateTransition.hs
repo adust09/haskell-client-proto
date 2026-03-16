@@ -164,15 +164,18 @@ expandAggregationBits
   -> [ValidatorIndex]
 expandAggregationBits validators subnetId bits =
   let allVals = unSszList validators
+      numBits = bitlistLen bits
+      -- Collect (globalIndex, validatorIndex) pairs for this subnet
       subnetVals = sort
         [ fromIntegral i :: ValidatorIndex
         | (i, _) <- zip [(0 :: Int)..] allVals
         , getAttestationSubnet (fromIntegral i) == subnetId
         ]
-      numBits = bitlistLen bits
-  in  [ subnetVals !! idx
-      | idx <- [0 .. min (numBits - 1) (length subnetVals - 1)]
-      , getBitlistBit bits idx
+  in  [ vi
+      | vi <- subnetVals
+      , let globalIdx = fromIntegral vi
+      , globalIdx < numBits
+      , getBitlistBit bits globalIdx
       ]
 
 processAttestation
