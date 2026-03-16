@@ -21,6 +21,12 @@ import qualified Test.Consensus.SlotTimer as SlotTimer
 import qualified Test.Consensus.StateTransition as StateTransition
 import qualified Test.Consensus.ForkChoice as ForkChoice
 import qualified Test.Consensus.Integration as Integration
+import qualified Test.Network.P2PTypes as P2PTypes
+import qualified Test.Network.Wire as Wire
+import qualified Test.Network.MessageHandler as MessageHandler
+import qualified Test.Network.Sync as Sync
+import qualified Test.Network.Aggregator as Aggregator
+import qualified Test.Network.Integration as NetworkIntegration
 
 main :: IO ()
 main = defaultMain tests
@@ -46,4 +52,10 @@ tests = testGroup "lean-consensus"
   , StateTransition.tests
   , ForkChoice.tests
   , Integration.tests
+  , P2PTypes.tests
+  , Wire.tests
+  , MessageHandler.tests
+  , Sync.tests
+  , Aggregator.tests
+  , NetworkIntegration.tests
   ]
