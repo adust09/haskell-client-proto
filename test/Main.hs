@@ -28,6 +28,7 @@ import qualified Test.Network.Sync as Sync
 import qualified Test.Network.Aggregator as Aggregator
 import qualified Test.Network.Integration as NetworkIntegration
 import qualified Test.Storage as Storage
+import qualified Test.Genesis as Genesis
 
 main :: IO ()
 main = defaultMain tests
@@ -60,4 +61,5 @@ tests = testGroup "lean-consensus"
   , Aggregator.tests
   , NetworkIntegration.tests
   , Storage.tests
+  , Genesis.tests
   ]

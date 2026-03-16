@@ -4,15 +4,19 @@ import Control.Concurrent.STM
 import System.Posix.Signals (installHandler, Handler(..), sigINT, sigTERM)
 
 import LeanConsensus (version)
-import Options (Options (..), parseOptions)
+import Config (NodeConfig (..))
+import Options (parseOptions, toNodeConfig)
 
 main :: IO ()
 main = do
   opts <- parseOptions
+  let config = toNodeConfig opts
   putStrLn $ "lean-consensus v" <> version
-  putStrLn $ "Listening on port " <> show (optListenPort opts)
-  putStrLn $ "Bootnodes: " <> show (optBootnodes opts)
-  putStrLn $ "Aggregator mode: " <> show (optIsAggregator opts)
+  putStrLn $ "Data dir: " <> ncDataDir config
+  putStrLn $ "Genesis: " <> ncGenesisFile config
+  putStrLn $ "Listening on port " <> show (ncListenPort config)
+  putStrLn $ "Bootnodes: " <> show (ncBootnodes config)
+  putStrLn $ "Log level: " <> show (ncLogLevel config)
 
   -- Install signal handlers for graceful shutdown
   shutdownVar <- newTVarIO False
@@ -20,9 +24,7 @@ main = do
   _ <- installHandler sigINT  (Catch shutdown) Nothing
   _ <- installHandler sigTERM (Catch shutdown) Nothing
 
-  -- TODO: Initialize genesis state, P2P handle, and start actors.
-  -- This is the main loop skeleton — full wiring requires P2P backend
-  -- (FFI or IPC) which is Step 6.
+  -- TODO: Initialize genesis state, storage, and start actors (Step 4).
   putStrLn "Waiting for shutdown signal (Ctrl-C)..."
   atomically $ do
     done <- readTVar shutdownVar
