@@ -24,6 +24,7 @@ module Consensus.Types
     -- * Fork choice (non-SSZ)
   , Store (..)
   , LatestMessage (..)
+  , SlashingEvidence (..)
   ) where
 
 import Data.ByteString (ByteString)
@@ -117,7 +118,7 @@ instance SszHashTreeRoot LeanMultisigProof where
 data Checkpoint = Checkpoint
   { cpSlot :: !Slot
   , cpRoot :: !Root
-  } deriving stock (Generic, Eq, Show)
+  } deriving stock (Generic, Eq, Ord, Show)
 
 instance Ssz Checkpoint where
   sszFixedSize = genericSszFixedSize @(Rep Checkpoint)
@@ -133,7 +134,7 @@ data AttestationData = AttestationData
   , adHeadRoot         :: !Root
   , adSourceCheckpoint :: !Checkpoint
   , adTargetCheckpoint :: !Checkpoint
-  } deriving stock (Generic, Eq, Show)
+  } deriving stock (Generic, Eq, Ord, Show)
 
 instance Ssz AttestationData where
   sszFixedSize = genericSszFixedSize @(Rep AttestationData)
@@ -271,6 +272,8 @@ instance SszEncode BeaconState where
   sszEncode = genericSszEncode
 instance SszDecode BeaconState where
   sszDecode = genericSszDecode
+instance SszHashTreeRoot BeaconState where
+  hashTreeRoot = genericHashTreeRoot
 
 -- ---------------------------------------------------------------------------
 -- Fork choice types (not SSZ-serialized)
@@ -283,9 +286,16 @@ data Store = Store
   , stBlockStates         :: !(Map Root BeaconState)
   , stLatestMessages      :: !(Map ValidatorIndex LatestMessage)
   , stCurrentSlot         :: !Slot
+  , stVoteHistory         :: !(Map ValidatorIndex [AttestationData])
   } deriving stock (Eq, Show)
 
 data LatestMessage = LatestMessage
   { lmSlot :: !Slot
   , lmRoot :: !Root
   } deriving stock (Eq, Show)
+
+-- | Evidence of a slashable offense.
+data SlashingEvidence
+  = DoubleVote AttestationData AttestationData
+  | SurroundVote AttestationData AttestationData
+  deriving stock (Eq, Show)

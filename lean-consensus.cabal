@@ -47,8 +47,12 @@ library
         Crypto.KeyManager
         Crypto.LeanMultisig
         Crypto.Operations
+        Consensus.SlotTimer
+        Consensus.StateTransition
+        Consensus.ForkChoice
     build-depends:
         base          >= 4.18  && < 5
+      , time          >= 1.12  && < 1.15
       , bytestring    >= 0.11  && < 0.13
       , crypton       >= 0.34  && < 1.1
       , memory        >= 0.18  && < 0.19
@@ -95,6 +99,10 @@ test-suite lean-consensus-test
         Test.Crypto.KeyManager
         Test.Crypto.LeanMultisig
         Test.Crypto.Operations
+        Test.Consensus.SlotTimer
+        Test.Consensus.StateTransition
+        Test.Consensus.ForkChoice
+        Test.Consensus.Integration
     build-depends:
         base            >= 4.18 && < 5
       , lean-consensus
@@ -108,3 +116,5 @@ test-suite lean-consensus-test
       , directory       >= 1.3  && < 1.4
       , temporary       >= 1.3  && < 1.4
       , async           >= 2.2  && < 2.3
+      , time
+      , containers
