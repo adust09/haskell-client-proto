@@ -1,6 +1,6 @@
 -- | Mock P2P network for testing: in-process message routing via TVar + TQueue.
 module Test.Support.MockNetwork
-  ( MockNetwork
+  ( MockNetwork (..)
   , newMockNetwork
   , mockP2PHandle
   , mockP2PHandleWithBlocks

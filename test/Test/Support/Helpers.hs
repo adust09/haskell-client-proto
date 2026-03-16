@@ -2,10 +2,15 @@
 module Test.Support.Helpers
   ( forkIOSafe
   , mkTestValidator
+  , mkTestValidatorWithKey
   , mkTestGenesisState
   , mkTestGenesisBlock
   , mkTestSignedBlock
+  , mkTestSignedBlockWithAtts
   , mkTestAttestation
+  , mkSignedTestAttestation
+  , buildChain
+  , advanceToSlot
   , zeroRoot
   , zeroCheckpoint
   , zeroSig
@@ -16,13 +21,16 @@ module Test.Support.Helpers
 import Control.Concurrent (forkIO, ThreadId)
 import Control.Exception (SomeException, catch)
 import qualified Data.ByteString as BS
+import qualified Data.ByteString.Char8 as BS8
 import Data.Word (Word8)
 import qualified Data.Vector as V
 
 import Consensus.Constants
 import Consensus.Types
-import Consensus.StateTransition (getProposerIndex, processSlot)
-import SSZ.Common (mkBytesN, zeroN)
+import Consensus.StateTransition (getProposerIndex, processSlot, stateTransition)
+import Crypto.LeanSig (PrivateKey, generateKeyPair, sign)
+import Crypto.SigningRoot (computeSigningRoot)
+import SSZ.Common (mkBytesN, unBytesN, zeroN)
 import SSZ.List (mkSszList)
 import SSZ.Merkleization (SszHashTreeRoot (..))
 import SSZ.Vector (mkSszVector)
@@ -54,6 +62,24 @@ mkTestValidator w balance =
              Right p -> p
              Left _  -> error "mkTestValidator"
   in  Validator pk balance False 0 maxBound maxBound
+
+-- | Create a validator with a real Ed25519-backed key pair for signing tests.
+-- Returns (PrivateKey, Validator).
+mkTestValidatorWithKey :: Int -> Gwei -> (PrivateKey, Validator)
+mkTestValidatorWithKey idx balance =
+  let seed = BS8.pack ("test-validator-seed-" <> show idx)
+      (privKey, pubKey) = forceRight $ generateKeyPair 10 seed
+  in  (privKey, Validator pubKey balance False 0 maxBound maxBound)
+
+-- | Create a properly signed attestation using a real private key.
+mkSignedTestAttestation :: PrivateKey -> ValidatorIndex -> Slot -> Root
+                        -> Checkpoint -> Checkpoint -> Domain -> SignedAttestation
+mkSignedTestAttestation privKey vi slot headRoot source target domain =
+  let attData = AttestationData slot headRoot source target
+      signingRoot = computeSigningRoot attData domain
+      message = unBytesN signingRoot
+      sig = forceRight $ sign privKey message 0
+  in  SignedAttestation attData vi sig
 
 mkTestGenesisState :: [Validator] -> BeaconState
 mkTestGenesisState vals =
@@ -94,6 +120,31 @@ mkTestSignedBlock st targetSlot =
         , bbBody          = mkEmptyBody
         }
   in  SignedBeaconBlock block zeroSig
+
+mkTestSignedBlockWithAtts :: BeaconState -> Slot -> [SignedAggregatedAttestation] -> SignedBeaconBlock
+mkTestSignedBlockWithAtts st targetSlot atts =
+  let st1 = advanceToSlot st targetSlot
+      parentRoot = toRoot (bsLatestBlockHeader st1)
+      body = BeaconBlockBody
+        { bbbAttestations = forceRight $ mkSszList @MAX_ATTESTATIONS atts }
+      block = BeaconBlock
+        { bbSlot          = targetSlot
+        , bbProposerIndex = getProposerIndex st1
+        , bbParentRoot    = parentRoot
+        , bbStateRoot     = zeroRoot
+        , bbBody          = body
+        }
+  in  SignedBeaconBlock block zeroSig
+
+-- | Build a chain of empty blocks from genesis, returning signed blocks and post-states.
+buildChain :: BeaconState -> Int -> ([SignedBeaconBlock], [BeaconState])
+buildChain gs n = go gs (1 :: Slot) n [] []
+  where
+    go _st _slot 0 accBlocks accStates = (reverse accBlocks, reverse accStates)
+    go st slot remaining accBlocks accStates =
+      let sbb = mkTestSignedBlock st slot
+          st' = forceRight $ stateTransition st sbb False
+      in  go st' (slot + 1) (remaining - 1) (sbb : accBlocks) (st' : accStates)
 
 mkTestAttestation :: ValidatorIndex -> Slot -> Root -> Checkpoint -> Checkpoint -> SignedAttestation
 mkTestAttestation vi slot headRoot source target =

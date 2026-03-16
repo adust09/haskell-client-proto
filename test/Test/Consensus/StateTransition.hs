@@ -273,10 +273,12 @@ tests = testGroup "Consensus.StateTransition"
               valList = case mkSszList @VALIDATOR_REGISTRY_LIMIT vals of
                           Right sl -> sl
                           Left _   -> error "mkSszList"
-              bits = case mkBitlist @MAX_VALIDATORS_PER_SUBNET [True, True] of
+              -- Bitlist uses global committee positions: bits 0 and 4 set for subnet 0
+              bits = case mkBitlist @MAX_VALIDATORS_PER_SUBNET
+                       [True, False, False, False, True, False, False, False] of
                        Right b -> b
                        Left _  -> error "mkBitlist"
-          -- Subnet 0 has validators [0, 4], both bits set
+          -- Subnet 0 has validators [0, 4], both global bits set
           expandAggregationBits valList 0 bits @?= [0, 4]
       ]
   ]
