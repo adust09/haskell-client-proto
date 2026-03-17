@@ -20,6 +20,7 @@ data NodeConfig = NodeConfig
   , ncRpcPort         :: !(Maybe Int)
   , ncMetricsPort     :: !(Maybe Int)
   , ncValidatorKeyDir :: !(Maybe FilePath)
+  , ncP2PSocket       :: !(Maybe FilePath)
   , ncLogLevel        :: !LogLevel
   } deriving stock (Eq, Show)
 
@@ -35,5 +36,6 @@ defaultNodeConfig = NodeConfig
   , ncRpcPort         = Nothing
   , ncMetricsPort     = Nothing
   , ncValidatorKeyDir = Nothing
+  , ncP2PSocket       = Nothing
   , ncLogLevel        = Info
   }
