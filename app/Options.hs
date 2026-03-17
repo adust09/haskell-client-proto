@@ -19,6 +19,7 @@ data Options = Options
   , optRpcPort         :: !(Maybe Int)
   , optMetricsPort     :: !(Maybe Int)
   , optValidatorKeyDir :: !(Maybe FilePath)
+  , optP2PSocket       :: !(Maybe FilePath)
   , optLogLevel        :: !LogLevel
   } deriving stock (Show)
 
@@ -84,6 +85,11 @@ optionsParser = Options
      <> metavar "DIR"
      <> help "Validator key directory (enables validator mode)"
       ))
+  <*> optional (strOption
+      ( long "p2p-socket"
+     <> metavar "PATH"
+     <> help "Unix socket path for P2P IPC sidecar"
+      ))
   <*> option auto
       ( long "log-level"
      <> metavar "LEVEL"
@@ -104,5 +110,6 @@ toNodeConfig o = NodeConfig
   , ncRpcPort         = optRpcPort o
   , ncMetricsPort     = optMetricsPort o
   , ncValidatorKeyDir = optValidatorKeyDir o
+  , ncP2PSocket       = optP2PSocket o
   , ncLogLevel        = optLogLevel o
   }

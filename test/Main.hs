@@ -24,6 +24,7 @@ import qualified Test.Consensus.Integration as Integration
 import qualified Test.Network.P2PTypes as P2PTypes
 import qualified Test.Network.Wire as Wire
 import qualified Test.Network.MessageHandler as MessageHandler
+import qualified Test.Network.IPC as IPC
 import qualified Test.Network.Sync as Sync
 import qualified Test.Network.Aggregator as Aggregator
 import qualified Test.Network.Integration as NetworkIntegration
@@ -31,6 +32,7 @@ import qualified Test.Storage as Storage
 import qualified Test.Genesis as Genesis
 import qualified Test.Actor as Actor
 import qualified Test.Node as Node
+import qualified Test.Validator as Validator
 import qualified Test.Network.RPC as RPC
 import qualified Test.Metrics as Metrics
 import qualified Test.Integration.Devnet as Devnet
@@ -62,6 +64,7 @@ tests = testGroup "lean-consensus"
   , P2PTypes.tests
   , Wire.tests
   , MessageHandler.tests
+  , IPC.tests
   , Sync.tests
   , Aggregator.tests
   , NetworkIntegration.tests
@@ -69,6 +72,7 @@ tests = testGroup "lean-consensus"
   , Genesis.tests
   , Actor.tests
   , Node.tests
+  , Validator.tests
   , RPC.tests
   , Metrics.tests
   , Devnet.tests

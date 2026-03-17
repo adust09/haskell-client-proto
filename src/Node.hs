@@ -17,19 +17,23 @@ import Actor (Actor (..), spawnActor, send, waitActor)
 import Config (NodeConfig (..))
 import qualified Data.Map.Strict as Map
 import Consensus.Types
-  ( SignedBeaconBlock
-  , SignedAttestation
-  , SignedAggregatedAttestation (..)
+  ( SignedAggregatedAttestation (..)
   , Store (..)
   , BeaconState (..)
   , AttestationData (..)
   , LatestMessage (..)
   , Checkpoint (..)
+  , XmssPubkey
   )
 import Consensus.Constants (Root, Slot, ValidatorIndex)
 import Consensus.ForkChoice (onBlock, onAttestation)
 import Consensus.StateTransition (processSlots, expandAggregationBits)
-import Genesis (GenesisConfig)
+import Crypto.KeyManager (loadManagedKey, managedPublicKey)
+import Crypto.SigningRoot (computeDomain)
+import Genesis (GenesisConfig (..), GenesisValidator (..))
+import NodeTypes
+import SSZ.Common (mkBytesN, zeroN)
+import SSZ.Merkleization (SszHashTreeRoot (..))
 import Storage
   ( StorageHandle
   , readCurrentState
@@ -38,28 +42,7 @@ import Storage
   , writeForkChoiceStore
   , putBlock
   )
-import SSZ.Common (mkBytesN)
-import SSZ.Merkleization (SszHashTreeRoot (..))
-
--- | Messages for the blockchain (fork-choice) actor.
-data BlockchainMsg
-  = BcSlotTick !Slot
-  | BcNewBlock !SignedBeaconBlock
-  | BcNewAttestation !SignedAttestation
-  | BcNewAggregation !SignedAggregatedAttestation
-  | BcShutdown
-
--- | Messages for the P2P networking actor.
-data P2PMsg
-  = P2PPublishBlock !SignedBeaconBlock
-  | P2PPublishAttestation !SignedAttestation
-  | P2PPublishAggregation !SignedAggregatedAttestation
-  | P2PShutdown
-
--- | Messages for the validator duty actor.
-data ValidatorMsg
-  = ValSlotTick !Slot
-  | ValShutdown
+import Validator (ValidatorEnv (..), validatorLoop)
 
 -- | Collection of all running node actors.
 data NodeActors = NodeActors
@@ -74,12 +57,30 @@ startNode
   -> StorageHandle
   -> GenesisConfig
   -> IO NodeActors
-startNode config storageHandle _genesis = do
+startNode config storageHandle genesis = do
   bcActor <- spawnActor "blockchain" (blockchainLoop storageHandle)
   p2pActor <- spawnActor "p2p" p2pLoop
   valActor <- case ncValidatorKeyDir config of
     Nothing  -> pure Nothing
-    Just _   -> Just <$> spawnActor "validator" validatorLoop
+    Just keyDir -> do
+      let keyPath = keyDir <> "/validator.key"
+      mkResult <- loadManagedKey keyPath
+      case mkResult of
+        Left _err -> pure Nothing
+        Right managedKey -> do
+          pubKey <- managedPublicKey managedKey
+          let valIdx = findValidatorIndex genesis pubKey
+              domain = computeDomain (zeroN @4) (gcForkVersion genesis) (zeroN @32)
+              env = ValidatorEnv
+                { veStorage        = storageHandle
+                , veManagedKey     = managedKey
+                , veValidatorIndex = valIdx
+                , veDomain         = domain
+                , veKeyPersistPath = keyPath
+                , veBcActor        = bcActor
+                , veP2PActor       = p2pActor
+                }
+          Just <$> spawnActor "validator" (validatorLoop env)
   pure $ NodeActors bcActor p2pActor valActor
 
 -- | Stop all node actors gracefully by sending shutdown messages.
@@ -88,7 +89,6 @@ stopNode actors = do
   maybe (pure ()) (\v -> atomically $ send v ValShutdown) (naValidator actors)
   atomically $ send (naP2P actors) P2PShutdown
   atomically $ send (naBlockchain actors) BcShutdown
-  -- Wait for graceful completion
   maybe (pure ()) (void . waitActor) (naValidator actors)
   void $ waitActor (naP2P actors)
   void $ waitActor (naBlockchain actors)
@@ -151,7 +151,6 @@ blockchainLoop storage queue = go
           go
 
         BcNewAggregation agg -> do
-          -- Expand aggregation bits and apply each voter's attestation to fork choice
           store <- atomically $ readForkChoiceStore storage
           let ad = saaData agg
               subnetId = saaSubnetId agg
@@ -174,16 +173,6 @@ p2pLoop queue = go
         P2PPublishBlock _block -> go
         P2PPublishAttestation _att -> go
         P2PPublishAggregation _agg -> go
-
--- | Validator actor loop: responds to slot ticks with duty checks.
-validatorLoop :: TQueue ValidatorMsg -> IO ()
-validatorLoop queue = go
-  where
-    go = do
-      msg <- atomically $ readTQueue queue
-      case msg of
-        ValShutdown -> pure ()
-        ValSlotTick _slot -> go
 
 -- | Compute the SSZ hash tree root as a Bytes32 root.
 toRoot :: SszHashTreeRoot a => a -> Root
@@ -209,3 +198,13 @@ updateLatestMsg store vi slot root =
   in  if shouldUpdate
         then store { stLatestMessages = Map.insert vi msg (stLatestMessages store) }
         else store
+
+-- | Find a validator's index in the genesis config by matching public keys.
+findValidatorIndex :: GenesisConfig -> XmssPubkey -> ValidatorIndex
+findValidatorIndex gc pubKey =
+  case [ fromIntegral i :: ValidatorIndex
+       | (i, gv) <- zip [(0 :: Int)..] (gcValidators gc)
+       , gvPubkey gv == pubKey
+       ] of
+    (idx : _) -> idx
+    []        -> 0
