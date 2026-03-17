@@ -56,6 +56,8 @@ library
         Network.Sync
         Network.Aggregator
         Storage
+        Config
+        Genesis
     build-depends:
         base          >= 4.18  && < 5
       , time          >= 1.12  && < 1.15
@@ -70,6 +72,8 @@ library
       , async         >= 2.2   && < 2.3
       , zlib          >= 0.6   && < 0.8
       , rocksdb-haskell-jprupp >= 2.1 && < 2.2
+      , aeson         >= 2.1   && < 2.3
+      , base16-bytestring >= 1.0 && < 1.1
 
 executable lean-consensus
     import:           warnings
@@ -131,6 +135,7 @@ test-suite lean-consensus-test
         Test.Network.Aggregator
         Test.Network.Integration
         Test.Storage
+        Test.Genesis
     build-depends:
         base            >= 4.18 && < 5
       , lean-consensus
