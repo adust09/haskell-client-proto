@@ -30,6 +30,7 @@ import qualified Test.Network.Integration as NetworkIntegration
 import qualified Test.Storage as Storage
 import qualified Test.Genesis as Genesis
 import qualified Test.Actor as Actor
+import qualified Test.Node as Node
 
 main :: IO ()
 main = defaultMain tests
@@ -64,4 +65,5 @@ tests = testGroup "lean-consensus"
   , Storage.tests
   , Genesis.tests
   , Actor.tests
+  , Node.tests
   ]
