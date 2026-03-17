@@ -46,7 +46,7 @@ jobs:
         run: cabal update
 
       - name: Build dependencies
-        run: cabal build --only-dependencies
+        run: cabal build --only-dependencies --enable-tests
 
       - name: Build
         run: cabal build
