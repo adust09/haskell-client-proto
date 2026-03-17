@@ -7,21 +7,33 @@ module Node
   , startNode
   , stopNode
   , waitAllActors
+  , runSlotTicker
   ) where
 
 import Control.Concurrent.STM
 import Control.Exception (SomeException)
 
-import Actor (Actor, spawnActor, stopActor, waitActor)
+import Actor (Actor (..), spawnActor, send, waitActor)
 import Config (NodeConfig (..))
 import Consensus.Types
   ( SignedBeaconBlock
   , SignedAttestation
   , SignedAggregatedAttestation
   )
-import Consensus.Constants (Slot)
+import Consensus.Constants (Root, Slot)
+import Consensus.ForkChoice (onBlock, onAttestation)
+import Consensus.StateTransition (processSlots)
 import Genesis (GenesisConfig)
-import Storage (StorageHandle)
+import Storage
+  ( StorageHandle
+  , readCurrentState
+  , writeCurrentState
+  , readForkChoiceStore
+  , writeForkChoiceStore
+  , putBlock
+  )
+import SSZ.Common (mkBytesN)
+import SSZ.Merkleization (SszHashTreeRoot (..))
 
 -- | Messages for the blockchain (fork-choice) actor.
 data BlockchainMsg
@@ -56,20 +68,26 @@ startNode
   -> StorageHandle
   -> GenesisConfig
   -> IO NodeActors
-startNode config _storageHandle _genesis = do
-  bcActor <- spawnActor "blockchain" blockchainLoop
+startNode config storageHandle _genesis = do
+  bcActor <- spawnActor "blockchain" (blockchainLoop storageHandle)
   p2pActor <- spawnActor "p2p" p2pLoop
   valActor <- case ncValidatorKeyDir config of
     Nothing  -> pure Nothing
     Just _   -> Just <$> spawnActor "validator" validatorLoop
   pure $ NodeActors bcActor p2pActor valActor
 
--- | Stop all node actors gracefully.
+-- | Stop all node actors gracefully by sending shutdown messages.
 stopNode :: NodeActors -> IO ()
 stopNode actors = do
-  maybe (pure ()) stopActor (naValidator actors)
-  stopActor (naP2P actors)
-  stopActor (naBlockchain actors)
+  maybe (pure ()) (\v -> atomically $ send v ValShutdown) (naValidator actors)
+  atomically $ send (naP2P actors) P2PShutdown
+  atomically $ send (naBlockchain actors) BcShutdown
+  -- Wait for graceful completion
+  maybe (pure ()) (void . waitActor) (naValidator actors)
+  void $ waitActor (naP2P actors)
+  void $ waitActor (naBlockchain actors)
+  where
+    void f = f >> pure ()
 
 -- | Wait for all actors to complete, returning the first error if any.
 waitAllActors :: NodeActors -> IO (Maybe SomeException)
@@ -85,17 +103,47 @@ waitAllActors actors = do
     firstLeft (Left e : _) = Just e
     firstLeft (Right _ : rest) = firstLeft rest
 
--- | Blockchain actor loop: processes messages from its queue.
-blockchainLoop :: TQueue BlockchainMsg -> IO ()
-blockchainLoop queue = go
+-- | Feed slot ticks to the blockchain and (optional) validator actors.
+runSlotTicker :: NodeActors -> Slot -> IO ()
+runSlotTicker actors slot = do
+  atomically $ send (naBlockchain actors) (BcSlotTick slot)
+  case naValidator actors of
+    Nothing -> pure ()
+    Just v  -> atomically $ send v (ValSlotTick slot)
+
+-- | Blockchain actor loop: processes slot ticks, blocks, and attestations.
+blockchainLoop :: StorageHandle -> TQueue BlockchainMsg -> IO ()
+blockchainLoop storage queue = go
   where
     go = do
       msg <- atomically $ readTQueue queue
       case msg of
         BcShutdown -> pure ()
-        BcSlotTick _slot -> go
-        BcNewBlock _block -> go
-        BcNewAttestation _att -> go
+
+        BcSlotTick targetSlot -> do
+          state <- atomically $ readCurrentState storage
+          case processSlots state targetSlot of
+            Left _err    -> pure ()
+            Right state' -> atomically $ writeCurrentState storage state'
+          go
+
+        BcNewBlock signedBlock -> do
+          store <- atomically $ readForkChoiceStore storage
+          case onBlock store signedBlock of
+            Left _err    -> pure ()
+            Right store' -> do
+              let root = toRoot signedBlock
+              putBlock storage root signedBlock
+              atomically $ writeForkChoiceStore storage store'
+          go
+
+        BcNewAttestation att -> do
+          store <- atomically $ readForkChoiceStore storage
+          case onAttestation store att of
+            Left _err    -> pure ()
+            Right store' -> atomically $ writeForkChoiceStore storage store'
+          go
+
         BcNewAggregation _agg -> go
 
 -- | P2P actor loop: processes outgoing publish messages.
@@ -119,3 +167,9 @@ validatorLoop queue = go
       case msg of
         ValShutdown -> pure ()
         ValSlotTick _slot -> go
+
+-- | Compute the SSZ hash tree root as a Bytes32 root.
+toRoot :: SszHashTreeRoot a => a -> Root
+toRoot a = case mkBytesN @32 (hashTreeRoot a) of
+  Right r -> r
+  Left _  -> error "toRoot: hashTreeRoot did not produce 32 bytes"

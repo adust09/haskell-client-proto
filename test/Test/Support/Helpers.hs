@@ -5,6 +5,7 @@ module Test.Support.Helpers
   , mkTestValidatorWithKey
   , mkTestGenesisState
   , mkTestGenesisBlock
+  , mkTestGenesis
   , mkTestSignedBlock
   , mkTestSignedBlockWithAtts
   , mkTestAttestation
@@ -22,6 +23,8 @@ import Control.Concurrent (forkIO, ThreadId)
 import Control.Exception (SomeException, catch)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as BS8
+import Data.Time.Clock (UTCTime (..))
+import Data.Time.Calendar (fromGregorian)
 import Data.Word (Word8)
 import qualified Data.Vector as V
 
@@ -30,6 +33,7 @@ import Consensus.Types
 import Consensus.StateTransition (getProposerIndex, processSlot, stateTransition)
 import Crypto.LeanSig (PrivateKey, generateKeyPair, sign)
 import Crypto.SigningRoot (computeSigningRoot)
+import Genesis (GenesisConfig (..), GenesisValidator (..))
 import SSZ.Common (mkBytesN, unBytesN, zeroN)
 import SSZ.List (mkSszList)
 import SSZ.Merkleization (SszHashTreeRoot (..))
@@ -103,6 +107,27 @@ mkTestGenesisState vals =
 
 mkTestGenesisBlock :: BeaconBlock
 mkTestGenesisBlock = BeaconBlock 0 0 zeroRoot zeroRoot mkEmptyBody
+
+-- | Create a GenesisConfig with 2 test validators for integration testing.
+mkTestGenesis :: GenesisConfig
+mkTestGenesis =
+  let pk1 = case mkXmssPubkey (BS.replicate xmssPubkeySize 0) of
+               Right p -> p
+               Left _  -> error "mkTestGenesis: pk1"
+      pk2 = case mkXmssPubkey (BS.replicate xmssPubkeySize 1) of
+               Right p -> p
+               Left _  -> error "mkTestGenesis: pk2"
+      forkVer = case mkBytesN @4 (BS.pack [0, 0, 0, 1]) of
+                  Right v -> v
+                  Left _  -> error "mkTestGenesis: forkVersion"
+  in  GenesisConfig
+    { gcGenesisTime = UTCTime (fromGregorian 2026 1 1) 0
+    , gcValidators  = [ GenesisValidator pk1 32000000000
+                      , GenesisValidator pk2 32000000000
+                      ]
+    , gcForkVersion = forkVer
+    , gcChainId     = 1337
+    }
 
 mkEmptyBody :: BeaconBlockBody
 mkEmptyBody = BeaconBlockBody
