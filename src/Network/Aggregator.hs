@@ -18,7 +18,8 @@ import Control.Concurrent.STM
 import qualified Data.Map.Strict as Map
 import Data.Map.Strict (Map)
 
-import Consensus.Constants (SubnetId, Root)
+import Consensus.Constants (SubnetId, Root, Domain)
+import Consensus.StateTransition (getAttestationSubnet)
 import Consensus.SlotTimer (SlotPhase (..), waitUntilPhase)
 import Consensus.Types
     ( AttestationData, SignedAttestation (..)
@@ -76,6 +77,7 @@ data AggregatorEnv = AggregatorEnv
   , aePool         :: !AttestationPool
   , aeGenesisTime  :: !UTCTime
   , aeSubnets      :: ![SubnetId]
+  , aeDomain       :: !Domain
   }
 
 -- | Aggregation timeout in microseconds (800ms).
@@ -114,7 +116,7 @@ aggregatorLoop env = do
     Just bs -> do
       let validators = unSszList (bsValidators bs)
           pubkeys = [ vPubkey v | v <- validators ]
-          domain = cpRoot (stFinalizedCheckpoint store)
+          domain = aeDomain env
 
       -- Aggregate each group with timeout
       mapM_ (\(ad, atts) ->
@@ -128,9 +130,12 @@ aggregatorLoop env = do
 aggregateAndPublish :: AggregatorEnv -> [XmssPubkey] -> Root
                     -> AttestationData -> [SignedAttestation] -> IO ()
 aggregateAndPublish env pubkeys domain _ad atts = do
+  let subnetId = case atts of
+        (sa:_) -> getAttestationSubnet (saValidatorIndex sa)
+        []     -> 0
   result <- race
     (threadDelay aggregationTimeoutUs)
-    (aggregateAttestations (aeProver env) atts pubkeys domain)
+    (aggregateAttestations (aeProver env) atts pubkeys domain subnetId)
   case result of
     Left () -> pure ()  -- timeout, skip
     Right (Left _err) -> pure ()  -- aggregation failed, skip

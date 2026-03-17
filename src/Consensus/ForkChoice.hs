@@ -78,6 +78,11 @@ onBlock store signedBlock = do
     then Left (BlockSlotInFuture blockSlot (stCurrentSlot store))
     else Right ()
 
+  -- Block must not be older than finalized checkpoint
+  if blockSlot < cpSlot (stFinalizedCheckpoint store)
+    then Left (BlockSlotTooOld blockSlot (cpSlot (stFinalizedCheckpoint store)))
+    else Right ()
+
   -- Parent must exist
   if not (Map.member parentRoot (stBlocks store))
     then Left OrphanBlock
@@ -129,7 +134,7 @@ updateLatestMessagesFromBlock store block postState =
       validators = bsValidators postState
   in  foldl' (\s saa ->
         let ad = saaData saa
-            subnetId = adSlot ad `mod` totalSubnets
+            subnetId = saaSubnetId saa
             voterIndices = expandAggregationBits validators subnetId (saaAggregationBits saa)
             headRoot = adHeadRoot ad
             attSlot = adSlot ad

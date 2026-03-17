@@ -97,8 +97,8 @@ tests = testGroup "Network.Integration"
         (Map.member 0 (stLatestMessages store))
 
   , testCase "aggregation flow: pool -> aggregate -> publish to TopicAggregation" $ do
-      -- Create validators with real keys for proper signing
-      let keyVals = [ mkTestValidatorWithKey i 32000000 | i <- [0..3] ]
+      -- Create 8 validators so subnet 0 has validators [0, 4]
+      let keyVals = [ mkTestValidatorWithKey i 32000000 | i <- [0..7] ]
           privKeys = map fst keyVals
           vals = map snd keyVals
           gs = mkTestGenesisState vals
@@ -114,12 +114,13 @@ tests = testGroup "Network.Integration"
           genCp = zeroCheckpoint
           domain = cpRoot genCp
 
-      -- Create 3 properly-signed attestations for slot 1
+      -- Create attestations for subnet 0 validators (indices 0, 4)
       let pubkeys = [ vPubkey v | v <- unSszList (bsValidators st1) ]
           target1 = Checkpoint 1 block1Root
+          subnetVis = [ vi | vi <- [0 .. 7 :: Int], vi `mod` 4 == 0 ]  -- [0, 4]
           atts = [ mkSignedTestAttestation (privKeys !! i) (fromIntegral i)
                      1 block1Root genCp target1 domain
-                 | i <- [0, 1, 2] ]
+                 | i <- subnetVis ]
 
       -- Add to attestation pool and drain
       pool <- newAttestationPool
@@ -129,7 +130,7 @@ tests = testGroup "Network.Integration"
 
       -- Aggregate
       let (_, signedAtts) = head (Map.toList groups)
-      aggResult <- aggregateAttestations prover signedAtts pubkeys domain
+      aggResult <- aggregateAttestations prover signedAtts pubkeys domain 0
       case aggResult of
         Left err -> assertFailure ("aggregation failed: " <> show err)
         Right saa -> do
@@ -197,12 +198,12 @@ tests = testGroup "Network.Integration"
       -- Instead, create 4 aggregations at slots 0,1,2,3 (subnets 0,1,2,3).
       -- Each subnet has 4 validators: subnet s = {s, s+4, s+8, s+12}.
       -- Aggregate all 4 validators per subnet. Total = 16 validators = 512M = 100%.
-      let mkSubnetAgg attSlot = do
-            let subnetVis = [ vi | vi <- [0 .. fromIntegral nVals - 1], vi `mod` 4 == attSlot `mod` 4 ]
+      let mkSubnetAgg subnetId = do
+            let subnetVis = [ vi | vi <- [0 .. fromIntegral nVals - 1], vi `mod` 4 == subnetId ]
                 atts = [ mkSignedTestAttestation (privKeys !! fromIntegral vi) vi
-                           attSlot block1Root genCp target1 domain
+                           1 block1Root genCp target1 domain
                        | vi <- subnetVis ]
-            unsafeRight <$> aggregateAttestations prover atts pubkeys domain
+            unsafeRight <$> aggregateAttestations prover atts pubkeys domain subnetId
 
       saa0 <- mkSubnetAgg 0  -- subnet 0: validators 0,4,8,12
       saa1 <- mkSubnetAgg 1  -- subnet 1: validators 1,5,9,13

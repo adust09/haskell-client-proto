@@ -92,20 +92,24 @@ tests = testGroup "Crypto.Operations"
       withSystemTempDirectory "ops-test" $ \tmpDir -> do
         prover <- setupProver
         verifier <- setupVerifier
-        -- Create 3 validators
-        let seeds = ["seed-0", "seed-1", "seed-2"] :: [BS.ByteString]
+        -- Create 12 validators so subnet 0 has indices [0, 4, 8]
+        let seeds = ["seed-" <> BS.pack [fromIntegral i] | i <- [0..11 :: Int]]
             keyPairs = map (\s -> unsafeRight $ generateKeyPair 10 s) seeds
             pubs = map snd keyPairs
-        -- Sign attestations
-        signedAtts <- mapM (\(i, (pk, pub)) -> do
-          mk <- newManagedKey pk pub
+            -- Validators in subnet 0: indices 0, 4, 8
+            subnetVis = [0, 4, 8] :: [Int]
+            subnetPubs = [ snd (keyPairs !! i) | i <- subnetVis ]
+        -- Sign attestations for subnet 0 validators
+        signedAtts <- mapM (\i -> do
+          let (pk, _pub) = keyPairs !! i
+          mk <- newManagedKey pk (snd (keyPairs !! i))
           let keyPath = tmpDir </> ("key-" <> show i <> ".dat")
           unsafeRight <$> signAttestation mk keyPath testAttData (fromIntegral i) testDomain
-          ) (zip [0 :: Int ..] keyPairs)
+          ) subnetVis
         -- Aggregate
-        saa <- unsafeRight <$> aggregateAttestations prover signedAtts pubs testDomain
-        -- Verify
-        valid <- unsafeRight <$> verifyAggregatedAttestation verifier saa pubs testDomain
+        saa <- unsafeRight <$> aggregateAttestations prover signedAtts pubs testDomain 0
+        -- Verify with subnet pubkeys (matching the signers)
+        valid <- unsafeRight <$> verifyAggregatedAttestation verifier saa subnetPubs testDomain
         valid @?= True
 
   , testCase "duplicate validator indices in aggregation → error" $
@@ -116,7 +120,7 @@ tests = testGroup "Crypto.Operations"
         let keyPath = tmpDir </> "key.dat"
         sa1 <- unsafeRight <$> signAttestation mk keyPath testAttData 0 testDomain
         sa2 <- unsafeRight <$> signAttestation mk keyPath testAttData 0 testDomain  -- same index!
-        result <- aggregateAttestations prover [sa1, sa2] [pub] testDomain
+        result <- aggregateAttestations prover [sa1, sa2] [pub] testDomain 0
         case result of
           Left (AggregationFailed msg) ->
             assertBool "should mention duplicates" ("duplicate" `isInfixOf` msg)
@@ -133,7 +137,7 @@ tests = testGroup "Crypto.Operations"
         mk2 <- newManagedKey pk2 pub2
         sa1 <- unsafeRight <$> signAttestation mk1 (tmpDir </> "k1.dat") testAttData 0 testDomain
         sa2 <- unsafeRight <$> signAttestation mk2 (tmpDir </> "k2.dat") attData2 1 testDomain
-        result <- aggregateAttestations prover [sa1, sa2] [pub1, pub2] testDomain
+        result <- aggregateAttestations prover [sa1, sa2] [pub1, pub2] testDomain 0
         case result of
           Left (AggregationFailed msg) ->
             assertBool "should mention mixed" ("mixed" `isInfixOf` msg)
@@ -146,7 +150,7 @@ tests = testGroup "Crypto.Operations"
         let (pk, pub) = unsafeRight $ generateKeyPair 10 "test-seed"
         mk <- newManagedKey pk pub
         sa <- unsafeRight <$> signAttestation mk (tmpDir </> "k.dat") testAttData 999 testDomain
-        result <- aggregateAttestations prover [sa] [pub] testDomain
+        result <- aggregateAttestations prover [sa] [pub] testDomain 0
         case result of
           Left (AggregationFailed msg) ->
             assertBool "should mention unknown" ("unknown" `isInfixOf` msg)
