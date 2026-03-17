@@ -29,6 +29,7 @@ import qualified Test.Network.Aggregator as Aggregator
 import qualified Test.Network.Integration as NetworkIntegration
 import qualified Test.Storage as Storage
 import qualified Test.Genesis as Genesis
+import qualified Test.Actor as Actor
 
 main :: IO ()
 main = defaultMain tests
@@ -62,4 +63,5 @@ tests = testGroup "lean-consensus"
   , NetworkIntegration.tests
   , Storage.tests
   , Genesis.tests
+  , Actor.tests
   ]
