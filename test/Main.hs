@@ -33,6 +33,7 @@ import qualified Test.Actor as Actor
 import qualified Test.Node as Node
 import qualified Test.Network.RPC as RPC
 import qualified Test.Metrics as Metrics
+import qualified Test.Integration.Devnet as Devnet
 
 main :: IO ()
 main = defaultMain tests
@@ -70,4 +71,5 @@ tests = testGroup "lean-consensus"
   , Node.tests
   , RPC.tests
   , Metrics.tests
+  , Devnet.tests
   ]

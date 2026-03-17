@@ -148,6 +148,7 @@ test-suite lean-consensus-test
         Test.Node
         Test.Network.RPC
         Test.Metrics
+        Test.Integration.Devnet
     build-depends:
         base            >= 4.18 && < 5
       , lean-consensus
