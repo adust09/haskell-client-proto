@@ -61,6 +61,7 @@ library
         Actor
         Node
         Network.RPC
+        Metrics
     build-depends:
         base          >= 4.18  && < 5
       , time          >= 1.12  && < 1.15
@@ -146,6 +147,7 @@ test-suite lean-consensus-test
         Test.Actor
         Test.Node
         Test.Network.RPC
+        Test.Metrics
     build-depends:
         base            >= 4.18 && < 5
       , lean-consensus
