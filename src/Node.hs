@@ -15,14 +15,20 @@ import Control.Exception (SomeException)
 
 import Actor (Actor (..), spawnActor, send, waitActor)
 import Config (NodeConfig (..))
+import qualified Data.Map.Strict as Map
 import Consensus.Types
   ( SignedBeaconBlock
   , SignedAttestation
-  , SignedAggregatedAttestation
+  , SignedAggregatedAttestation (..)
+  , Store (..)
+  , BeaconState (..)
+  , AttestationData (..)
+  , LatestMessage (..)
+  , Checkpoint (..)
   )
-import Consensus.Constants (Root, Slot)
+import Consensus.Constants (Root, Slot, ValidatorIndex)
 import Consensus.ForkChoice (onBlock, onAttestation)
-import Consensus.StateTransition (processSlots)
+import Consensus.StateTransition (processSlots, expandAggregationBits)
 import Genesis (GenesisConfig)
 import Storage
   ( StorageHandle
@@ -144,7 +150,18 @@ blockchainLoop storage queue = go
             Right store' -> atomically $ writeForkChoiceStore storage store'
           go
 
-        BcNewAggregation _agg -> go
+        BcNewAggregation agg -> do
+          -- Expand aggregation bits and apply each voter's attestation to fork choice
+          store <- atomically $ readForkChoiceStore storage
+          let ad = saaData agg
+              subnetId = saaSubnetId agg
+              voterIndices = expandAggregationBits
+                (bsValidators (lookupJustifiedState store)) subnetId (saaAggregationBits agg)
+              headRoot = adHeadRoot ad
+              attSlot = adSlot ad
+              store' = foldl (\s vi -> updateLatestMsg s vi attSlot headRoot) store voterIndices
+          atomically $ writeForkChoiceStore storage store'
+          go
 
 -- | P2P actor loop: processes outgoing publish messages.
 p2pLoop :: TQueue P2PMsg -> IO ()
@@ -173,3 +190,22 @@ toRoot :: SszHashTreeRoot a => a -> Root
 toRoot a = case mkBytesN @32 (hashTreeRoot a) of
   Right r -> r
   Left _  -> error "toRoot: hashTreeRoot did not produce 32 bytes"
+
+-- | Look up the beacon state at the justified checkpoint root.
+lookupJustifiedState :: Store -> BeaconState
+lookupJustifiedState store =
+  let justRoot = cpRoot (stJustifiedCheckpoint store)
+  in  case Map.lookup justRoot (stBlockStates store) of
+        Just bs -> bs
+        Nothing -> error "lookupJustifiedState: justified state missing"
+
+-- | Update a validator's latest message if the new slot is newer.
+updateLatestMsg :: Store -> ValidatorIndex -> Slot -> Root -> Store
+updateLatestMsg store vi slot root =
+  let msg = LatestMessage slot root
+      shouldUpdate = case Map.lookup vi (stLatestMessages store) of
+        Nothing  -> True
+        Just old -> slot > lmSlot old
+  in  if shouldUpdate
+        then store { stLatestMessages = Map.insert vi msg (stLatestMessages store) }
+        else store

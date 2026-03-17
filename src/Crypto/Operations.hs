@@ -9,9 +9,10 @@ module Crypto.Operations
   , verifyAggregatedAttestation
   ) where
 
-import Data.List (nub)
+import Data.List (nub, sort)
 
-import Consensus.Constants (Domain, ValidatorIndex)
+import Consensus.Constants (Domain, SubnetId, ValidatorIndex)
+import Consensus.StateTransition (getAttestationSubnet)
 import Consensus.Types
   ( AttestationData
   , BeaconBlock
@@ -68,10 +69,10 @@ verifyBlock sbb pubkey domain =
 -- | Aggregate multiple signed attestations into a single aggregated attestation.
 -- All attestations must share the same AttestationData.
 -- The committee list maps committee positions (indices into the list) to pubkeys.
-aggregateAttestations :: ProverContext -> [SignedAttestation] -> [XmssPubkey] -> Domain
+aggregateAttestations :: ProverContext -> [SignedAttestation] -> [XmssPubkey] -> Domain -> SubnetId
                       -> IO (Either CryptoError SignedAggregatedAttestation)
-aggregateAttestations _ [] _ _ = pure (Left (AggregationFailed "empty attestation list"))
-aggregateAttestations prover attestations committee domain = do
+aggregateAttestations _ [] _ _ _ = pure (Left (AggregationFailed "empty attestation list"))
+aggregateAttestations prover attestations committee domain subnetId = do
   -- Validate: all attestations must share the same AttestationData
   let attDatas = map saData attestations
       firstData = head attDatas
@@ -83,8 +84,8 @@ aggregateAttestations prover attestations committee domain = do
       if length (nub valIndices) /= length valIndices
         then pure (Left (AggregationFailed "duplicate validator indices"))
         else do
-          -- Build signers list and bitlist
-          case buildSignersAndBits attestations committee of
+          -- Build signers list and bitlist using subnet-local positions
+          case buildSignersAndBits attestations committee subnetId of
             Left e -> pure (Left e)
             Right (signers, bits) -> do
               let signingRoot = computeSigningRoot firstData domain
@@ -95,7 +96,7 @@ aggregateAttestations prover attestations committee domain = do
                 Right proof ->
                   case mkBitlist bits of
                     Left _sszErr -> Left (AggregationFailed "bitlist construction failed")
-                    Right bitlist -> Right (SignedAggregatedAttestation firstData bitlist proof)
+                    Right bitlist -> Right (SignedAggregatedAttestation firstData subnetId bitlist proof)
 
 -- | Verify an aggregated attestation.
 verifyAggregatedAttestation :: VerifierContext -> SignedAggregatedAttestation
@@ -109,38 +110,30 @@ verifyAggregatedAttestation verifier saa pubkeys domain = do
 -- Internal helpers
 -- ---------------------------------------------------------------------------
 
--- | Build the (pubkey, signature) pairs and the bitlist bits from attestations and a committee.
--- Each attestation's validator index must map to a pubkey in the committee.
-buildSignersAndBits :: [SignedAttestation] -> [XmssPubkey]
+-- | Build the (pubkey, signature) pairs and the bitlist bits from attestations
+-- and a full committee list. Positions in the bitlist correspond to subnet-local
+-- positions, matching how expandAggregationBits reads them.
+buildSignersAndBits :: [SignedAttestation] -> [XmssPubkey] -> SubnetId
                     -> Either CryptoError ([(XmssPubkey, XmssSignature)], [Bool])
-buildSignersAndBits attestations committee = do
-  -- Find committee positions for each attestation
-  positions <- mapM (findPosition committee) attestations
-  let committeeSize = length committee
-      bits = [i `elem` positions | i <- [0 .. committeeSize - 1]]
-      signers = [(committee !! pos, saSignature att) | (pos, att) <- zip positions attestations]
+buildSignersAndBits attestations committee subnetId = do
+  -- Build the sorted list of validator indices in this subnet
+  let subnetVis = sort
+        [ fromIntegral i :: ValidatorIndex
+        | i <- [0 .. length committee - 1]
+        , getAttestationSubnet (fromIntegral i) == subnetId
+        ]
+      subnetSize = length subnetVis
+  -- Find subnet-local positions for each attestation
+  positions <- mapM (findSubnetPosition subnetVis) attestations
+  let bits = [i `elem` positions | i <- [0 .. subnetSize - 1]]
+      signers = [ (committee !! fromIntegral (saValidatorIndex att), saSignature att)
+                | att <- attestations ]
   Right (signers, bits)
 
--- | Find the committee-local position of a validator.
-findPosition :: [XmssPubkey] -> SignedAttestation -> Either CryptoError Int
-findPosition committee att =
-  let valIdx = saValidatorIndex att
-  in  case lookupByIndex committee valIdx of
-        Nothing -> Left (AggregationFailed ("unknown validator index: " <> show valIdx))
+-- | Find a validator's local position within a subnet.
+findSubnetPosition :: [ValidatorIndex] -> SignedAttestation -> Either CryptoError Int
+findSubnetPosition subnetVis att =
+  let vi = saValidatorIndex att
+  in  case lookup vi (zip subnetVis [0..]) of
+        Nothing  -> Left (AggregationFailed ("unknown validator index in subnet: " <> show vi))
         Just pos -> Right pos
-
--- | Look up a validator's committee position by matching public key at the validator index.
--- The validator index is a global index; we check if the pubkey at that position in the
--- committee list matches (if the index is within bounds), otherwise scan the whole committee.
-lookupByIndex :: [XmssPubkey] -> ValidatorIndex -> Maybe Int
-lookupByIndex committee _valIdx =
-  -- In the full system, we'd have a mapping from ValidatorIndex to pubkey.
-  -- For now, we assume the committee list IS the mapping: position i has validator i.
-  -- The caller is responsible for constructing the committee list correctly.
-  -- We need to find where this validator's pubkey is in the committee.
-  -- Since we don't have a global registry here, we match by validator index directly
-  -- as a committee position (if it fits).
-  let idx = fromIntegral _valIdx :: Int
-  in  if idx < length committee
-        then Just idx
-        else Nothing

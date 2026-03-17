@@ -33,9 +33,11 @@ import GHC.TypeNats (natVal)
 import Consensus.Constants
 import Consensus.Types
 import SSZ.Bitlist (Bitlist, bitlistLen, getBitlistBit)
-import SSZ.Common (mkBytesN, zeroN)
+import SSZ.Common (mkBytesN, unBytesN, zeroN)
 import SSZ.List (SszList, mkSszList, unSszList)
 import SSZ.Merkleization (SszHashTreeRoot (..))
+import qualified Crypto.LeanSig as LeanSig
+import Crypto.SigningRoot (computeSigningRoot)
 import SSZ.Vector (mkSszVector, unSszVector)
 
 -- ---------------------------------------------------------------------------
@@ -165,17 +167,17 @@ expandAggregationBits
 expandAggregationBits validators subnetId bits =
   let allVals = unSszList validators
       numBits = bitlistLen bits
-      -- Collect (globalIndex, validatorIndex) pairs for this subnet
+      -- Collect validator indices assigned to this subnet, sorted
       subnetVals = sort
         [ fromIntegral i :: ValidatorIndex
         | (i, _) <- zip [(0 :: Int)..] allVals
         , getAttestationSubnet (fromIntegral i) == subnetId
         ]
+      -- Use local position within subnet, not global validator index
   in  [ vi
-      | vi <- subnetVals
-      , let globalIdx = fromIntegral vi
-      , globalIdx < numBits
-      , getBitlistBit bits globalIdx
+      | (localIdx, vi) <- zip [0..] subnetVals
+      , localIdx < numBits
+      , getBitlistBit bits localIdx
       ]
 
 processAttestation
@@ -234,14 +236,12 @@ processJustificationFinalization bs =
         [] -> bsJustifiedCheckpoint bs
         xs -> fst $ foldl1 (\a b -> if cpSlot (fst a) >= cpSlot (fst b) then a else b) xs
 
-      -- Finalization: if we have a new justified checkpoint and the old justified
-      -- was the finalized checkpoint, then finalize the old justified
+      -- Finalization: when a new justified checkpoint is found, promote the
+      -- old justified to finalized if it is newer than current finalized
       newFinalized
         | newJustified /= bsJustifiedCheckpoint bs
-        , bsJustifiedCheckpoint bs == bsFinalizedCheckpoint bs
+        , cpSlot (bsJustifiedCheckpoint bs) > cpSlot (bsFinalizedCheckpoint bs)
         = bsJustifiedCheckpoint bs
-        | newJustified /= bsJustifiedCheckpoint bs
-        = bsFinalizedCheckpoint bs
         | otherwise
         = bsFinalizedCheckpoint bs
 
@@ -252,7 +252,7 @@ processJustificationFinalization bs =
     countAttestation (voteAcc, seenAcc) saa =
       let ad = saaData saa
           target = adTargetCheckpoint ad
-          subnetId = adSlot ad `mod` totalSubnets
+          subnetId = saaSubnetId saa
           voterIndices = expandAggregationBits (bsValidators bs) subnetId (saaAggregationBits saa)
           validators = unSszList (bsValidators bs)
       in  foldl' (\(m, seen) vi ->
@@ -284,11 +284,13 @@ findSlashable [] _ = Nothing
 findSlashable (old : rest) newVote
   | adSlot old == adSlot newVote && old /= newVote =
       Just (DoubleVote old newVote)
-  | adSlot newVote < adSlot old
-  , cpSlot (adTargetCheckpoint newVote) > cpSlot (adTargetCheckpoint old) =
-      Just (SurroundVote old newVote)
-  | adSlot old < adSlot newVote
-  , cpSlot (adTargetCheckpoint old) > cpSlot (adTargetCheckpoint newVote) =
+  -- Surround vote: new vote's source is strictly earlier and target is strictly later
+  | cpSlot (adSourceCheckpoint newVote) < cpSlot (adSourceCheckpoint old)
+  , cpSlot (adTargetCheckpoint old) < cpSlot (adTargetCheckpoint newVote) =
+      Just (SurroundVote newVote old)
+  -- Surround vote: old vote's source is strictly earlier and target is strictly later
+  | cpSlot (adSourceCheckpoint old) < cpSlot (adSourceCheckpoint newVote)
+  , cpSlot (adTargetCheckpoint newVote) < cpSlot (adTargetCheckpoint old) =
       Just (SurroundVote old newVote)
   | otherwise = findSlashable rest newVote
 
@@ -315,10 +317,28 @@ stateTransition
   -> SignedBeaconBlock
   -> Bool
   -> Either StateTransitionError BeaconState
-stateTransition bs signedBlock _validateSigs = do
+stateTransition bs signedBlock validateSigs = do
   let block = sbbBlock signedBlock
   bs1 <- processSlots bs (bbSlot block)
   bs2 <- processBlockHeader bs1 block
+
+  -- Verify block proposer signature if requested
+  if validateSigs
+    then do
+      let proposerIdx = fromIntegral (bbProposerIndex block)
+          validators = unSszList (bsValidators bs2)
+      case safeIndex validators proposerIdx of
+        Nothing -> Left (BlockProcessingError "proposer index out of range")
+        Just proposer -> do
+          let domain = toRoot bs2  -- use state root as domain placeholder
+              signingRoot = computeSigningRoot block domain
+              message = unBytesN signingRoot
+          case LeanSig.verify (vPubkey proposer) message (sbbSignature signedBlock) of
+            Left _      -> Left (BlockProcessingError "block signature verification error")
+            Right False -> Left (BlockProcessingError "invalid block signature")
+            Right True  -> Right ()
+    else Right ()
+
   let atts = unSszList (bbbAttestations (bbBody block))
   bs3 <- processAttestations bs2 atts
   let bs4 = processJustificationFinalization bs3

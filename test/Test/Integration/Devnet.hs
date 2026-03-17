@@ -148,7 +148,7 @@ tests = testGroup "Integration.Devnet"
                      1 block1Root genCp target1 domain
                  | vi <- subnetVis ]
 
-      aggResult <- aggregateAttestations prover atts pubkeys domain
+      aggResult <- aggregateAttestations prover atts pubkeys domain 0
       case aggResult of
         Left err -> assertFailure ("aggregation failed: " <> show err)
         Right saa -> do
@@ -199,13 +199,13 @@ tests = testGroup "Integration.Devnet"
           st4 = unsafeRight $ stateTransition st3 sbb4 False
 
       -- Create aggregations for all 4 subnets (100% voting power)
-      let mkSubnetAgg attSlot = do
+      let mkSubnetAgg subnetId = do
             let vis = [ vi | vi <- [0 .. fromIntegral nVals - 1]
-                       , vi `mod` 4 == attSlot `mod` 4 ]
+                       , vi `mod` 4 == subnetId ]
                 satts = [ mkSignedTestAttestation (privKeys !! fromIntegral vi) vi
-                           attSlot block1Root genCp target1 domain
+                           1 block1Root genCp target1 domain
                        | vi <- vis ]
-            unsafeRight <$> aggregateAttestations prover satts pubkeys domain
+            unsafeRight <$> aggregateAttestations prover satts pubkeys domain subnetId
 
       saa0 <- mkSubnetAgg 0
       saa1 <- mkSubnetAgg 1

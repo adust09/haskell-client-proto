@@ -152,7 +152,7 @@ tests = testGroup "Consensus.StateTransition"
               bits = case mkBitlist @MAX_VALIDATORS_PER_SUBNET [True] of
                        Right b -> b
                        Left _  -> error "mkBitlist"
-              saa = SignedAggregatedAttestation ad bits (LeanMultisigProof "")
+              saa = SignedAggregatedAttestation ad 0 bits (LeanMultisigProof "")
               bs' = case mkSszList @MAX_ATTESTATIONS_STATE [saa] of
                       Right sl -> bs { bsCurrentAttestations = sl }
                       Left _   -> error "mkSszList"
@@ -226,26 +226,35 @@ tests = testGroup "Consensus.StateTransition"
             Left (DoubleVote _ _) -> pure ()
             other -> assertFailure $ "Expected DoubleVote, got: " ++ show other
       , testCase "surround vote detected (new surrounds old)" $ do
-          let target1 = Checkpoint 8 (mkRoot 1)
+          -- new: source=1, target=10 surrounds old: source=3, target=8
+          let source1 = Checkpoint 3 (mkRoot 10)
+              target1 = Checkpoint 8 (mkRoot 1)
+              source2 = Checkpoint 1 (mkRoot 11)
               target2 = Checkpoint 10 (mkRoot 2)
-              ad1 = AttestationData 5 zeroRoot zeroCheckpoint target1
-              ad2 = AttestationData 3 zeroRoot zeroCheckpoint target2
+              ad1 = AttestationData 5 zeroRoot source1 target1
+              ad2 = AttestationData 3 zeroRoot source2 target2
           case checkSlashingConditions [ad1] ad2 of
             Left (SurroundVote _ _) -> pure ()
             other -> assertFailure $ "Expected SurroundVote, got: " ++ show other
       , testCase "surround vote detected (old surrounds new)" $ do
-          let target1 = Checkpoint 10 (mkRoot 1)
+          -- old: source=1, target=10 surrounds new: source=3, target=8
+          let source1 = Checkpoint 1 (mkRoot 10)
+              target1 = Checkpoint 10 (mkRoot 1)
+              source2 = Checkpoint 3 (mkRoot 11)
               target2 = Checkpoint 8 (mkRoot 2)
-              ad1 = AttestationData 3 zeroRoot zeroCheckpoint target1
-              ad2 = AttestationData 5 zeroRoot zeroCheckpoint target2
+              ad1 = AttestationData 3 zeroRoot source1 target1
+              ad2 = AttestationData 5 zeroRoot source2 target2
           case checkSlashingConditions [ad1] ad2 of
             Left (SurroundVote _ _) -> pure ()
             other -> assertFailure $ "Expected SurroundVote, got: " ++ show other
       , testCase "non-overlapping passes" $ do
-          let target1 = Checkpoint 5 (mkRoot 1)
+          -- source=0, target=5 and source=5, target=10 — no overlap
+          let source1 = Checkpoint 0 (mkRoot 10)
+              target1 = Checkpoint 5 (mkRoot 1)
+              source2 = Checkpoint 5 (mkRoot 11)
               target2 = Checkpoint 10 (mkRoot 2)
-              ad1 = AttestationData 1 zeroRoot zeroCheckpoint target1
-              ad2 = AttestationData 6 zeroRoot zeroCheckpoint target2
+              ad1 = AttestationData 1 zeroRoot source1 target1
+              ad2 = AttestationData 6 zeroRoot source2 target2
           checkSlashingConditions [ad1] ad2 @?= Right ()
       , testCase "slashValidator sets vSlashed and zero balance" $ do
           let vals = [mkValidator 32000000 0 maxBound]
@@ -273,12 +282,13 @@ tests = testGroup "Consensus.StateTransition"
               valList = case mkSszList @VALIDATOR_REGISTRY_LIMIT vals of
                           Right sl -> sl
                           Left _   -> error "mkSszList"
-              -- Bitlist uses global committee positions: bits 0 and 4 set for subnet 0
-              bits = case mkBitlist @MAX_VALIDATORS_PER_SUBNET
-                       [True, False, False, False, True, False, False, False] of
+              -- Bitlist uses LOCAL positions: subnet 0 has validators [0, 4]
+              -- Local position 0 = validator 0, local position 1 = validator 4
+              -- Set both local bits
+              bits = case mkBitlist @MAX_VALIDATORS_PER_SUBNET [True, True] of
                        Right b -> b
                        Left _  -> error "mkBitlist"
-          -- Subnet 0 has validators [0, 4], both global bits set
+          -- Subnet 0 has validators [0, 4], both local bits set
           expandAggregationBits valList 0 bits @?= [0, 4]
       ]
   ]

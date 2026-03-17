@@ -105,10 +105,15 @@ instance SszEncode LeanMultisigProof where
 instance SszDecode LeanMultisigProof where
   sszDecode = Right . LeanMultisigProof
 
+-- | Max capacity for LeanMultisigProof in bytes (32KB).
+-- Used for merkleization limit calculation.
+leanMultisigProofMaxSize :: Int
+leanMultisigProofMaxSize = 32768
+
 instance SszHashTreeRoot LeanMultisigProof where
   hashTreeRoot (LeanMultisigProof bs) =
     let chunks = pack [bs]
-        limit  = max 1 (fromIntegral ((BS.length bs + 31) `div` 32))
+        limit  = max 1 (fromIntegral ((leanMultisigProofMaxSize + 31) `div` 32))
     in  mixInLength (merkleize chunks limit) (fromIntegral (BS.length bs))
 
 -- ---------------------------------------------------------------------------
@@ -162,6 +167,7 @@ instance SszHashTreeRoot SignedAttestation where
 
 data SignedAggregatedAttestation = SignedAggregatedAttestation
   { saaData             :: !AttestationData
+  , saaSubnetId         :: !SubnetId
   , saaAggregationBits  :: !(Bitlist MAX_VALIDATORS_PER_SUBNET)
   , saaAggregationProof :: !LeanMultisigProof
   } deriving stock (Generic, Eq, Show)
