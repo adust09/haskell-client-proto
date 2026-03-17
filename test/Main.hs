@@ -32,6 +32,7 @@ import qualified Test.Genesis as Genesis
 import qualified Test.Actor as Actor
 import qualified Test.Node as Node
 import qualified Test.Network.RPC as RPC
+import qualified Test.Metrics as Metrics
 
 main :: IO ()
 main = defaultMain tests
@@ -68,4 +69,5 @@ tests = testGroup "lean-consensus"
   , Actor.tests
   , Node.tests
   , RPC.tests
+  , Metrics.tests
   ]
