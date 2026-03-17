@@ -60,6 +60,7 @@ library
         Genesis
         Actor
         Node
+        Network.RPC
     build-depends:
         base          >= 4.18  && < 5
       , time          >= 1.12  && < 1.15
@@ -76,6 +77,9 @@ library
       , rocksdb-haskell-jprupp >= 2.1 && < 2.2
       , aeson         >= 2.1   && < 2.3
       , base16-bytestring >= 1.0 && < 1.1
+      , warp          >= 3.3   && < 3.5
+      , wai           >= 3.2   && < 3.3
+      , http-types    >= 0.12  && < 0.13
 
 executable lean-consensus
     import:           warnings
@@ -141,6 +145,7 @@ test-suite lean-consensus-test
         Test.Genesis
         Test.Actor
         Test.Node
+        Test.Network.RPC
     build-depends:
         base            >= 4.18 && < 5
       , lean-consensus
@@ -157,3 +162,7 @@ test-suite lean-consensus-test
       , time
       , containers
       , stm             >= 2.5  && < 2.6
+      , aeson           >= 2.1  && < 2.3
+      , text            >= 2.0  && < 2.2
+      , wai             >= 3.2  && < 3.3
+      , http-types      >= 0.12 && < 0.13
