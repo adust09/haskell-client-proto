@@ -58,6 +58,8 @@ library
         Storage
         Config
         Genesis
+        Actor
+        Node
     build-depends:
         base          >= 4.18  && < 5
       , time          >= 1.12  && < 1.15
@@ -136,6 +138,7 @@ test-suite lean-consensus-test
         Test.Network.Integration
         Test.Storage
         Test.Genesis
+        Test.Actor
     build-depends:
         base            >= 4.18 && < 5
       , lean-consensus
