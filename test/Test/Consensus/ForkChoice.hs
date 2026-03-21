@@ -9,12 +9,10 @@ import Test.Tasty.HUnit
 import Consensus.Constants
 import Consensus.Types
 import Consensus.ForkChoice
+import SSZ.Bitlist (mkBitlist)
 import SSZ.Common (mkBytesN, zeroN)
 import SSZ.List (mkSszList)
 import SSZ.Merkleization (SszHashTreeRoot (..))
-import SSZ.Vector (mkSszVector)
-
-import qualified Data.Vector as V
 
 toRoot :: SszHashTreeRoot a => a -> Root
 toRoot a = case mkBytesN @32 (hashTreeRoot a) of
@@ -50,32 +48,27 @@ mkValidatorWithPubkey w balance =
 
 mkGenesisState :: [Validator] -> BeaconState
 mkGenesisState vals =
-  let numHistSlots = 64
-      emptyRoots = case mkSszVector @SLOTS_PER_HISTORICAL_ROOT
-                        (V.replicate numHistSlots zeroRoot) of
-                     Right sv -> sv
-                     Left _   -> error "mkGenesisState: roots"
-      valList = case mkSszList @VALIDATOR_REGISTRY_LIMIT vals of
-                  Right sl -> sl
-                  Left _   -> error "mkGenesisState: validators"
-      balances = case mkSszList @VALIDATOR_REGISTRY_LIMIT
-                      (map vEffectiveBalance vals) of
-                   Right sl -> sl
-                   Left _   -> error "mkGenesisState: balances"
-      emptyAtts = case mkSszList @MAX_ATTESTATIONS_STATE [] of
-                    Right sl -> sl
-                    Left _   -> error "mkGenesisState: attestations"
+  let valList      = forceRight $ mkSszList @VALIDATORS_LIMIT vals
+      emptyHashes  = forceRight $ mkSszList @HISTORICAL_BLOCK_HASHES_LIMIT []
+      emptyJSlots  = forceRight $ mkBitlist @JUSTIFIED_SLOTS_LIMIT []
+      emptyJRoots  = forceRight $ mkSszList @JUSTIFICATIONS_ROOTS_LIMIT []
+      emptyJVals   = forceRight $ mkBitlist @JUSTIFICATIONS_VALIDATORS_LIMIT []
   in  BeaconState
-    { bsSlot                = 0
-    , bsLatestBlockHeader   = BeaconBlockHeader 0 0 zeroRoot zeroRoot zeroRoot
-    , bsBlockRoots          = emptyRoots
-    , bsStateRoots          = emptyRoots
-    , bsValidators          = valList
-    , bsBalances            = balances
-    , bsJustifiedCheckpoint = zeroCheckpoint
-    , bsFinalizedCheckpoint = zeroCheckpoint
-    , bsCurrentAttestations = emptyAtts
+    { bsConfig                   = Config { cfGenesisTime = 0 }
+    , bsSlot                     = 0
+    , bsLatestBlockHeader        = BeaconBlockHeader 0 0 zeroRoot zeroRoot zeroRoot
+    , bsLatestJustified          = zeroCheckpoint
+    , bsLatestFinalized          = zeroCheckpoint
+    , bsHistoricalBlockHashes    = emptyHashes
+    , bsJustifiedSlots           = emptyJSlots
+    , bsValidators               = valList
+    , bsJustificationsRoots      = emptyJRoots
+    , bsJustificationsValidators = emptyJVals
     }
+
+forceRight :: Either e a -> a
+forceRight (Right a) = a
+forceRight (Left _)  = error "forceRight: unexpected Left"
 
 mkEmptyBody :: BeaconBlockBody
 mkEmptyBody = BeaconBlockBody

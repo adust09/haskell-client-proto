@@ -23,12 +23,7 @@ module Consensus.StateTransition
   ) where
 
 import Data.List (foldl', sort)
-import qualified Data.Map.Strict as Map
-import qualified Data.Set as Set
-import qualified Data.Vector as V
 import Data.Word (Word64)
-import Data.Proxy (Proxy (..))
-import GHC.TypeNats (natVal)
 
 import Consensus.Constants
 import Consensus.Types
@@ -38,7 +33,6 @@ import SSZ.List (SszList, mkSszList, unSszList)
 import SSZ.Merkleization (SszHashTreeRoot (..))
 import qualified Crypto.LeanSig as LeanSig
 import Crypto.SigningRoot (computeSigningRoot)
-import SSZ.Vector (mkSszVector, unSszVector)
 
 -- ---------------------------------------------------------------------------
 -- Errors
@@ -87,38 +81,17 @@ getAttestationSubnet vi = vi `mod` totalSubnets
 -- Per-slot processing
 -- ---------------------------------------------------------------------------
 
--- | Process a single slot: cache roots, prune stale attestations, increment.
+-- | Process a single slot: cache block hash in history, increment slot.
 processSlot :: BeaconState -> BeaconState
 processSlot bs =
   let slot = bsSlot bs
-      slotsPerHist = fromIntegral (natVal (Proxy @SLOTS_PER_HISTORICAL_ROOT)) :: Word64
-      slotIdx = fromIntegral (slot `mod` slotsPerHist)
-
-      -- Cache state root
-      stateRoot = toRoot bs
-      stateRootsVec = unSszVector (bsStateRoots bs)
-      newStateRoots = forceRight $
-        mkSszVector @SLOTS_PER_HISTORICAL_ROOT (stateRootsVec V.// [(slotIdx, stateRoot)])
-
-      -- Cache block root
-      blockRoot = toRoot (bsLatestBlockHeader bs)
-      blockRootsVec = unSszVector (bsBlockRoots bs)
-      newBlockRoots = forceRight $
-        mkSszVector @SLOTS_PER_HISTORICAL_ROOT (blockRootsVec V.// [(slotIdx, blockRoot)])
-
-      -- Prune stale attestations
-      newSlot = slot + 1
-      retentionWindow = slotsToFinality + 1
-      currentAtts = unSszList (bsCurrentAttestations bs)
-      prunedAtts = filter
-        (\saa -> adSlot (saaData saa) + retentionWindow >= newSlot)
-        currentAtts
-      newAtts = forceRight $ mkSszList @MAX_ATTESTATIONS_STATE prunedAtts
-
-  in  bs { bsSlot = newSlot
-         , bsStateRoots = newStateRoots
-         , bsBlockRoots = newBlockRoots
-         , bsCurrentAttestations = newAtts
+      -- Append the latest block header hash to historical_block_hashes
+      blockHash = toRoot (bsLatestBlockHeader bs)
+      currentHashes = unSszList (bsHistoricalBlockHashes bs)
+      newHashes = forceRight $
+        mkSszList @HISTORICAL_BLOCK_HASHES_LIMIT (currentHashes ++ [blockHash])
+  in  bs { bsSlot = slot + 1
+         , bsHistoricalBlockHashes = newHashes
          }
 
 -- | Advance state to the target slot.
@@ -160,7 +133,7 @@ processBlockHeader bs block = do
 
 -- | Expand aggregation bits to validator indices for a given subnet.
 expandAggregationBits
-  :: SszList VALIDATOR_REGISTRY_LIMIT Validator
+  :: SszList VALIDATORS_LIMIT Validator
   -> SubnetId
   -> Bitlist n
   -> [ValidatorIndex]
@@ -193,16 +166,16 @@ processAttestation bs saa = do
     else Right ()
 
   -- Source must match justified or finalized (devnet fallback)
-  let sourceOk = adSourceCheckpoint ad == bsJustifiedCheckpoint bs
-              || adSourceCheckpoint ad == bsFinalizedCheckpoint bs
+  let sourceOk = adSourceCheckpoint ad == bsLatestJustified bs
+              || adSourceCheckpoint ad == bsLatestFinalized bs
   if not sourceOk
     then Left InvalidSourceCheckpoint
     else Right ()
 
-  let currentAtts = unSszList (bsCurrentAttestations bs)
-  case mkSszList @MAX_ATTESTATIONS_STATE (currentAtts ++ [saa]) of
-    Left _   -> Left (AttestationListError "attestation list overflow")
-    Right newAtts -> Right bs { bsCurrentAttestations = newAtts }
+  -- Attestation accepted (state-level attestation tracking is done via
+  -- justifiedSlots / justificationsRoots / justificationsValidators in
+  -- the new leanSpec model; detailed logic TBD in consensus rewrite)
+  Right bs
 
 processAttestations
   :: BeaconState
@@ -213,61 +186,12 @@ processAttestations = foldl' step . Right
     step (Left err) _ = Left err
     step (Right bs) saa = processAttestation bs saa
 
--- | Justification/finalization: count unique votes per target, check 2/3.
+-- | Justification/finalization placeholder.
+-- The full logic will be rewritten when the leanSpec consensus model is
+-- implemented (justification tracking via justifiedSlots, justificationsRoots,
+-- and justificationsValidators). For now, checkpoints are left unchanged.
 processJustificationFinalization :: BeaconState -> BeaconState
-processJustificationFinalization bs =
-  let validators = unSszList (bsValidators bs)
-      totalActive = sum
-        [ vEffectiveBalance v
-        | v <- validators
-        , isActiveValidator v (bsSlot bs)
-        ]
-
-      attestations = unSszList (bsCurrentAttestations bs)
-
-      -- Count votes with deduplication by (validatorIndex, targetRoot)
-      (voteMap, _seen) = foldl' countAttestation (Map.empty, Set.empty) attestations
-
-      -- Find justified checkpoints (>= 2/3 of total active balance)
-      justifiedCps =
-        [ (cp, w) | (cp, w) <- Map.toList voteMap, w * 3 >= totalActive * 2 ]
-
-      newJustified = case justifiedCps of
-        [] -> bsJustifiedCheckpoint bs
-        xs -> fst $ foldl1 (\a b -> if cpSlot (fst a) >= cpSlot (fst b) then a else b) xs
-
-      -- Finalization: when a new justified checkpoint is found, promote the
-      -- old justified to finalized if it is newer than current finalized
-      newFinalized
-        | newJustified /= bsJustifiedCheckpoint bs
-        , cpSlot (bsJustifiedCheckpoint bs) > cpSlot (bsFinalizedCheckpoint bs)
-        = bsJustifiedCheckpoint bs
-        | otherwise
-        = bsFinalizedCheckpoint bs
-
-  in  bs { bsJustifiedCheckpoint = newJustified
-         , bsFinalizedCheckpoint = newFinalized
-         }
-  where
-    countAttestation (voteAcc, seenAcc) saa =
-      let ad = saaData saa
-          target = adTargetCheckpoint ad
-          subnetId = saaSubnetId saa
-          voterIndices = expandAggregationBits (bsValidators bs) subnetId (saaAggregationBits saa)
-          validators = unSszList (bsValidators bs)
-      in  foldl' (\(m, seen) vi ->
-            let dedupKey = (vi, cpRoot target)
-            in  if Set.member dedupKey seen
-                  then (m, seen)
-                  else
-                    let bal = validatorBalance validators vi
-                        active = case safeIndex validators (fromIntegral vi) of
-                          Just v  -> isActiveValidator v (bsSlot bs)
-                          Nothing -> False
-                    in  if active
-                          then (Map.insertWith (+) target bal m, Set.insert dedupKey seen)
-                          else (m, seen)
-          ) (voteAcc, seenAcc) voterIndices
+processJustificationFinalization = id
 
 -- ---------------------------------------------------------------------------
 -- Slashing
@@ -304,7 +228,7 @@ slashValidator bs vi =
           let v = validators !! idx
               slashedV = v { vSlashed = True, vEffectiveBalance = 0 }
               newVals = take idx validators ++ [slashedV] ++ drop (idx + 1) validators
-          in  case mkSszList @VALIDATOR_REGISTRY_LIMIT newVals of
+          in  case mkSszList @VALIDATORS_LIMIT newVals of
                 Right sl -> bs { bsValidators = sl }
                 Left _   -> bs
 

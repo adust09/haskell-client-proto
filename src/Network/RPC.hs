@@ -60,8 +60,8 @@ rpcApp storage req respond = do
     ["eth", "v1", "beacon", "states", "head", "finality_checkpoints"] -> do
       state <- atomically $ readCurrentState storage
       respond $ jsonResponse status200 $ object
-        [ "justified" .= checkpointJson (bsJustifiedCheckpoint state)
-        , "finalized" .= checkpointJson (bsFinalizedCheckpoint state)
+        [ "justified" .= checkpointJson (bsLatestJustified state)
+        , "finalized" .= checkpointJson (bsLatestFinalized state)
         ]
 
     ["eth", "v1", "node", "peers"] ->

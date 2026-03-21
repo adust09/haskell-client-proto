@@ -218,7 +218,7 @@ tests = testGroup "Integration.Devnet"
 
       -- Verify justification advanced (precondition for finalization)
       assertBool "justified checkpoint should advance to slot >= 1"
-        (cpSlot (bsJustifiedCheckpoint st5) >= 1)
+        (cpSlot (bsLatestJustified st5) >= 1)
 
       -- Replay through MockNetwork + MessageHandler (E2E)
       mn <- newMockNetwork

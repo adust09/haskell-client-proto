@@ -19,15 +19,14 @@ import Data.Text.Encoding (encodeUtf8)
 import Data.Time.Clock (UTCTime)
 import Data.Time.Format (defaultTimeLocale, parseTimeM)
 import Data.Word (Word64)
-import qualified Data.Vector as V
-
 import Consensus.Constants
 import Consensus.ForkChoice (initStore)
 import Consensus.Types
+import Data.Time.Clock.POSIX (utcTimeToPOSIXSeconds)
+import SSZ.Bitlist (mkBitlist)
 import SSZ.Common (zeroN)
 import SSZ.List (mkSszList)
 import SSZ.Merkleization (SszHashTreeRoot (..))
-import SSZ.Vector (mkSszVector)
 import SSZ.Common (mkBytesN)
 
 -- ---------------------------------------------------------------------------
@@ -89,24 +88,26 @@ parseHexField fieldName hexStr = do
 -- | Build the genesis BeaconState from configuration.
 initializeGenesisState :: GenesisConfig -> BeaconState
 initializeGenesisState gc =
-  let validators = map toValidator (gcValidators gc)
-      balances   = map gvBalance (gcValidators gc)
-      emptyRoots = forceRight $
-        mkSszVector @SLOTS_PER_HISTORICAL_ROOT (V.replicate 64 zeroRoot)
-      valList    = forceRight $ mkSszList @VALIDATOR_REGISTRY_LIMIT validators
-      balList    = forceRight $ mkSszList @VALIDATOR_REGISTRY_LIMIT balances
-      emptyAtts  = forceRight $ mkSszList @MAX_ATTESTATIONS_STATE []
-      bodyRoot   = toRoot mkEmptyBody
+  let validators     = map toValidator (gcValidators gc)
+      genesisTimeSec = floor (utcTimeToPOSIXSeconds (gcGenesisTime gc)) :: Word64
+      config         = Config { cfGenesisTime = genesisTimeSec }
+      valList        = forceRight $ mkSszList @VALIDATORS_LIMIT validators
+      emptyHashes    = forceRight $ mkSszList @HISTORICAL_BLOCK_HASHES_LIMIT []
+      emptyJSlots    = forceRight $ mkBitlist @JUSTIFIED_SLOTS_LIMIT []
+      emptyJRoots    = forceRight $ mkSszList @JUSTIFICATIONS_ROOTS_LIMIT []
+      emptyJVals     = forceRight $ mkBitlist @JUSTIFICATIONS_VALIDATORS_LIMIT []
+      bodyRoot       = toRoot mkEmptyBody
   in  BeaconState
-    { bsSlot                = 0
-    , bsLatestBlockHeader   = BeaconBlockHeader 0 0 zeroRoot zeroRoot bodyRoot
-    , bsBlockRoots          = emptyRoots
-    , bsStateRoots          = emptyRoots
-    , bsValidators          = valList
-    , bsBalances            = balList
-    , bsJustifiedCheckpoint = zeroCheckpoint
-    , bsFinalizedCheckpoint = zeroCheckpoint
-    , bsCurrentAttestations = emptyAtts
+    { bsConfig                   = config
+    , bsSlot                     = 0
+    , bsLatestBlockHeader        = BeaconBlockHeader 0 0 zeroRoot zeroRoot bodyRoot
+    , bsLatestJustified          = zeroCheckpoint
+    , bsLatestFinalized          = zeroCheckpoint
+    , bsHistoricalBlockHashes    = emptyHashes
+    , bsJustifiedSlots           = emptyJSlots
+    , bsValidators               = valList
+    , bsJustificationsRoots      = emptyJRoots
+    , bsJustificationsValidators = emptyJVals
     }
 
 -- | The genesis block (slot 0, zero parent root).

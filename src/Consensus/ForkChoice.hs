@@ -117,8 +117,8 @@ onBlock store signedBlock = do
 -- | Update store checkpoints if post-state has newer justified/finalized.
 updateCheckpoints :: Store -> BeaconState -> Store
 updateCheckpoints store postState =
-  let newJust = bsJustifiedCheckpoint postState
-      newFin  = bsFinalizedCheckpoint postState
+  let newJust = bsLatestJustified postState
+      newFin  = bsLatestFinalized postState
       store1 = if cpSlot newJust > cpSlot (stJustifiedCheckpoint store)
                then store { stJustifiedCheckpoint = newJust }
                else store

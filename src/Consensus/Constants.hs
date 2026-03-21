@@ -22,6 +22,12 @@ module Consensus.Constants
   , MAX_ATTESTATIONS_STATE
   , SLOTS_PER_HISTORICAL_ROOT
   , VALIDATOR_REGISTRY_LIMIT
+    -- * leanSpec State limits
+  , HISTORICAL_BLOCK_HASHES_LIMIT
+  , JUSTIFIED_SLOTS_LIMIT
+  , VALIDATORS_LIMIT
+  , JUSTIFICATIONS_ROOTS_LIMIT
+  , JUSTIFICATIONS_VALIDATORS_LIMIT
     -- * Crypto sizes
   , xmssSignatureSize
   , xmssPubkeySize
@@ -83,6 +89,13 @@ type MAX_ATTESTATIONS          = 128
 type MAX_ATTESTATIONS_STATE    = 4096
 type SLOTS_PER_HISTORICAL_ROOT = 64
 type VALIDATOR_REGISTRY_LIMIT  = 1024
+
+-- leanSpec State collection limits
+type HISTORICAL_BLOCK_HASHES_LIMIT  = 262144
+type JUSTIFIED_SLOTS_LIMIT          = 262144
+type VALIDATORS_LIMIT               = 4096
+type JUSTIFICATIONS_ROOTS_LIMIT     = 262144
+type JUSTIFICATIONS_VALIDATORS_LIMIT = 1073741824  -- 262144 * 4096
 
 -- ---------------------------------------------------------------------------
 -- Crypto sizes

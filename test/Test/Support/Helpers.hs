@@ -26,7 +26,6 @@ import qualified Data.ByteString.Char8 as BS8
 import Data.Time.Clock (UTCTime (..))
 import Data.Time.Calendar (fromGregorian)
 import Data.Word (Word8)
-import qualified Data.Vector as V
 
 import Consensus.Constants
 import Consensus.Types
@@ -34,10 +33,10 @@ import Consensus.StateTransition (getProposerIndex, processSlot, stateTransition
 import Crypto.LeanSig (PrivateKey, generateKeyPair, sign)
 import Crypto.SigningRoot (computeSigningRoot)
 import Genesis (GenesisConfig (..), GenesisValidator (..))
+import SSZ.Bitlist (mkBitlist)
 import SSZ.Common (mkBytesN, unBytesN, zeroN)
 import SSZ.List (mkSszList)
 import SSZ.Merkleization (SszHashTreeRoot (..))
-import SSZ.Vector (mkSszVector)
 
 -- | Fork a thread that silently catches exceptions (for test subscribers).
 forkIOSafe :: IO () -> IO ThreadId
@@ -87,22 +86,23 @@ mkSignedTestAttestation privKey vi slot headRoot source target domain =
 
 mkTestGenesisState :: [Validator] -> BeaconState
 mkTestGenesisState vals =
-  let emptyRoots = forceRight $
-        mkSszVector @SLOTS_PER_HISTORICAL_ROOT (V.replicate 64 zeroRoot)
-      valList = forceRight $ mkSszList @VALIDATOR_REGISTRY_LIMIT vals
-      balances = forceRight $ mkSszList @VALIDATOR_REGISTRY_LIMIT (map vEffectiveBalance vals)
-      emptyAtts = forceRight $ mkSszList @MAX_ATTESTATIONS_STATE []
-      bodyRoot = toRoot mkEmptyBody
+  let valList      = forceRight $ mkSszList @VALIDATORS_LIMIT vals
+      emptyHashes  = forceRight $ mkSszList @HISTORICAL_BLOCK_HASHES_LIMIT []
+      emptyJSlots  = forceRight $ mkBitlist @JUSTIFIED_SLOTS_LIMIT []
+      emptyJRoots  = forceRight $ mkSszList @JUSTIFICATIONS_ROOTS_LIMIT []
+      emptyJVals   = forceRight $ mkBitlist @JUSTIFICATIONS_VALIDATORS_LIMIT []
+      bodyRoot     = toRoot mkEmptyBody
   in  BeaconState
-    { bsSlot                = 0
-    , bsLatestBlockHeader   = BeaconBlockHeader 0 0 zeroRoot zeroRoot bodyRoot
-    , bsBlockRoots          = emptyRoots
-    , bsStateRoots          = emptyRoots
-    , bsValidators          = valList
-    , bsBalances            = balances
-    , bsJustifiedCheckpoint = zeroCheckpoint
-    , bsFinalizedCheckpoint = zeroCheckpoint
-    , bsCurrentAttestations = emptyAtts
+    { bsConfig                   = Config { cfGenesisTime = 0 }
+    , bsSlot                     = 0
+    , bsLatestBlockHeader        = BeaconBlockHeader 0 0 zeroRoot zeroRoot bodyRoot
+    , bsLatestJustified          = zeroCheckpoint
+    , bsLatestFinalized          = zeroCheckpoint
+    , bsHistoricalBlockHashes    = emptyHashes
+    , bsJustifiedSlots           = emptyJSlots
+    , bsValidators               = valList
+    , bsJustificationsRoots      = emptyJRoots
+    , bsJustificationsValidators = emptyJVals
     }
 
 mkTestGenesisBlock :: BeaconBlock

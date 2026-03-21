@@ -216,7 +216,7 @@ tests = testGroup "Network.Integration"
 
       -- Verify justification advanced
       assertBool "justified checkpoint should advance to slot >= 1"
-        (cpSlot (bsJustifiedCheckpoint st5) >= 1)
+        (cpSlot (bsLatestJustified st5) >= 1)
 
       -- E2E: replay all blocks through MockNetwork + MessageHandler
       mn <- newMockNetwork

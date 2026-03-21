@@ -10,6 +10,8 @@ module Consensus.Types
   , XmssPubkey (..)
   , mkXmssPubkey
   , LeanMultisigProof (..)
+    -- * Config
+  , Config (..)
     -- * Core types
   , Checkpoint (..)
   , AttestationData (..)
@@ -28,6 +30,7 @@ module Consensus.Types
   ) where
 
 import Data.ByteString (ByteString)
+import Data.Word (Word64)
 import qualified Data.ByteString as BS
 import Data.Map.Strict (Map)
 import GHC.Generics (Generic, Rep)
@@ -37,7 +40,7 @@ import SSZ.Container ()
 import SSZ.Derive
 import SSZ.List (SszList)
 import SSZ.Merkleization (SszHashTreeRoot (..), merkleize, mixInLength, pack)
-import SSZ.Vector (SszVector)
+
 import Consensus.Constants
 
 -- ---------------------------------------------------------------------------
@@ -115,6 +118,24 @@ instance SszHashTreeRoot LeanMultisigProof where
     let chunks = pack [bs]
         limit  = max 1 (fromIntegral ((leanMultisigProofMaxSize + 31) `div` 32))
     in  mixInLength (merkleize chunks limit) (fromIntegral (BS.length bs))
+
+-- ---------------------------------------------------------------------------
+-- Config (leanSpec: containers/config.py)
+-- ---------------------------------------------------------------------------
+
+-- | Protocol configuration embedded in beacon state.
+data Config = Config
+  { cfGenesisTime :: !Word64
+  } deriving stock (Generic, Eq, Show)
+
+instance Ssz Config where
+  sszFixedSize = genericSszFixedSize @(Rep Config)
+instance SszEncode Config where
+  sszEncode = genericSszEncode
+instance SszDecode Config where
+  sszDecode = genericSszDecode
+instance SszHashTreeRoot Config where
+  hashTreeRoot = genericHashTreeRoot
 
 -- ---------------------------------------------------------------------------
 -- Core consensus types
@@ -261,15 +282,16 @@ instance SszHashTreeRoot Validator where
   hashTreeRoot = genericHashTreeRoot
 
 data BeaconState = BeaconState
-  { bsSlot                :: !Slot
-  , bsLatestBlockHeader   :: !BeaconBlockHeader
-  , bsBlockRoots          :: !(SszVector SLOTS_PER_HISTORICAL_ROOT Root)
-  , bsStateRoots          :: !(SszVector SLOTS_PER_HISTORICAL_ROOT Root)
-  , bsValidators          :: !(SszList VALIDATOR_REGISTRY_LIMIT Validator)
-  , bsBalances            :: !(SszList VALIDATOR_REGISTRY_LIMIT Gwei)
-  , bsJustifiedCheckpoint :: !Checkpoint
-  , bsFinalizedCheckpoint :: !Checkpoint
-  , bsCurrentAttestations :: !(SszList MAX_ATTESTATIONS_STATE SignedAggregatedAttestation)
+  { bsConfig                   :: !Config
+  , bsSlot                     :: !Slot
+  , bsLatestBlockHeader        :: !BeaconBlockHeader
+  , bsLatestJustified          :: !Checkpoint
+  , bsLatestFinalized          :: !Checkpoint
+  , bsHistoricalBlockHashes    :: !(SszList HISTORICAL_BLOCK_HASHES_LIMIT Root)
+  , bsJustifiedSlots           :: !(Bitlist JUSTIFIED_SLOTS_LIMIT)
+  , bsValidators               :: !(SszList VALIDATORS_LIMIT Validator)
+  , bsJustificationsRoots      :: !(SszList JUSTIFICATIONS_ROOTS_LIMIT Root)
+  , bsJustificationsValidators :: !(Bitlist JUSTIFICATIONS_VALIDATORS_LIMIT)
   } deriving stock (Generic, Eq, Show)
 
 instance Ssz BeaconState where
