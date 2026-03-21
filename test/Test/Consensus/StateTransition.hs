@@ -12,9 +12,7 @@ import SSZ.Bitlist (mkBitlist)
 import SSZ.Common (mkBytesN, zeroN)
 import SSZ.List (mkSszList, unSszList)
 import SSZ.Merkleization (SszHashTreeRoot (..))
-import SSZ.Vector (mkSszVector, unSszVector)
 
-import qualified Data.Vector as V
 
 toRoot :: SszHashTreeRoot a => a -> Root
 toRoot a = case mkBytesN @32 (hashTreeRoot a) of
@@ -60,10 +58,8 @@ mkValidatorWithPubkey w balance =
 
 mkGenesisState :: [Validator] -> BeaconState
 mkGenesisState vals =
-  let numHistSlots = 64  -- SLOTS_PER_HISTORICAL_ROOT
-      emptyRoots = case mkSszVector @SLOTS_PER_HISTORICAL_ROOT
-                        (V.replicate numHistSlots zeroRoot) of
-                     Right sv -> sv
+  let emptyRoots = case mkSszList @HISTORICAL_ROOTS_LIMIT [] of
+                     Right sl -> sl
                      Left _   -> error "mkGenesisState: roots"
       valList = case mkSszList @VALIDATOR_REGISTRY_LIMIT vals of
                   Right sl -> sl
@@ -72,7 +68,7 @@ mkGenesisState vals =
                       (map vEffectiveBalance vals) of
                    Right sl -> sl
                    Left _   -> error "mkGenesisState: balances"
-      emptyAtts = case mkSszList @MAX_ATTESTATIONS_STATE [] of
+      emptyAtts = case mkSszList @MAX_ATTESTATIONS [] of
                     Right sl -> sl
                     Left _   -> error "mkGenesisState: attestations"
   in  BeaconState
@@ -142,18 +138,18 @@ tests = testGroup "Consensus.StateTransition"
           let bs = mkGenesisState [mkValidator 32000000 0 maxBound]
               bs1 = processSlot bs
               stateRoot = toRoot bs
-              storedRoot = V.head (unSszVector (bsStateRoots bs1))
+              storedRoot = head (unSszList (bsStateRoots bs1))
           storedRoot @?= stateRoot
       , testCase "prunes stale attestations" $ do
           let vals = [mkValidator 32000000 0 maxBound]
               bs = mkGenesisState vals
               -- Create an attestation at slot 0
               ad = AttestationData 0 zeroRoot zeroCheckpoint zeroCheckpoint
-              bits = case mkBitlist @MAX_VALIDATORS_PER_SUBNET [True] of
+              bits = case mkBitlist @VALIDATOR_REGISTRY_LIMIT [True] of
                        Right b -> b
                        Left _  -> error "mkBitlist"
               saa = SignedAggregatedAttestation ad 0 bits (LeanMultisigProof "")
-              bs' = case mkSszList @MAX_ATTESTATIONS_STATE [saa] of
+              bs' = case mkSszList @MAX_ATTESTATIONS [saa] of
                       Right sl -> bs { bsCurrentAttestations = sl }
                       Left _   -> error "mkSszList"
               -- Advance 5 slots (retention window is 4)
@@ -271,7 +267,7 @@ tests = testGroup "Consensus.StateTransition"
               valList = case mkSszList @VALIDATOR_REGISTRY_LIMIT vals of
                           Right sl -> sl
                           Left _   -> error "mkSszList"
-              bits = case mkBitlist @MAX_VALIDATORS_PER_SUBNET [True] of
+              bits = case mkBitlist @VALIDATOR_REGISTRY_LIMIT [True] of
                        Right b -> b
                        Left _  -> error "mkBitlist"
           expandAggregationBits valList 0 bits @?= [0]
@@ -285,7 +281,7 @@ tests = testGroup "Consensus.StateTransition"
               -- Bitlist uses LOCAL positions: subnet 0 has validators [0, 4]
               -- Local position 0 = validator 0, local position 1 = validator 4
               -- Set both local bits
-              bits = case mkBitlist @MAX_VALIDATORS_PER_SUBNET [True, True] of
+              bits = case mkBitlist @VALIDATOR_REGISTRY_LIMIT [True, True] of
                        Right b -> b
                        Left _  -> error "mkBitlist"
           -- Subnet 0 has validators [0, 4], both local bits set

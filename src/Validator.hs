@@ -7,7 +7,7 @@ module Validator
 import Control.Concurrent.STM
 
 import Actor (Actor, send)
-import Consensus.Constants (Domain, Root, Slot, ValidatorIndex)
+import Consensus.Constants (Domain, Root, Slot, ValidatorIndex, MAX_ATTESTATIONS)
 import Consensus.ForkChoice (getHead)
 import Consensus.StateTransition (getProposerIndex, processSlots)
 import Consensus.Types
@@ -80,8 +80,8 @@ proposeBlock env state _store slot = do
         (\saa -> adSlot (saaData saa) + 3 >= slot && adSlot (saaData saa) < slot)
         pendingAtts
 
-  body <- case mkSszList @128 recentAtts of
-    Left _  -> pure $ BeaconBlockBody { bbbAttestations = forceRight $ mkSszList @128 [] }
+  body <- case mkSszList @MAX_ATTESTATIONS recentAtts of
+    Left _  -> pure $ BeaconBlockBody { bbbAttestations = forceRight $ mkSszList @MAX_ATTESTATIONS [] }
     Right attList -> pure $ BeaconBlockBody { bbbAttestations = attList }
 
   let block = BeaconBlock

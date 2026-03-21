@@ -57,13 +57,13 @@ tests = testGroup "Genesis"
       ]
   ]
 
--- | Sample genesis JSON with 2 validators (32-byte zero pubkeys).
+-- | Sample genesis JSON with 2 validators (52-byte pubkeys).
 sampleGenesisJson :: BL.ByteString
 sampleGenesisJson = BL.pack $ concat
   [ "{\"genesis_time\":\"2026-01-01T00:00:00Z\""
   , ",\"validators\":["
-  , "{\"pubkey\":\"0x" <> replicate 64 '0' <> "\",\"balance\":32000000000}"
-  , ",{\"pubkey\":\"0x" <> replicate 64 'a' <> "\",\"balance\":32000000000}"
+  , "{\"pubkey\":\"0x" <> replicate 104 '0' <> "\",\"balance\":32000000000}"
+  , ",{\"pubkey\":\"0x" <> replicate 104 'a' <> "\",\"balance\":32000000000}"
   , "]"
   , ",\"fork_version\":\"0x00000001\""
   , ",\"chain_id\":1337"

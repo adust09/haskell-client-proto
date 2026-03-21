@@ -52,10 +52,10 @@ generateKeyPair treeHeight seed
             CryptoPassed k -> k
             CryptoFailed _ -> error "generateKeyPair: Ed25519.secretKey failed on 32-byte input"
           pk = Ed25519.toPublic sk
-          pubBytes = BA.convert pk :: ByteString
-      in  case BS.length pubBytes == xmssPubkeySize of
-            True  -> Right (PrivateKey sk pk treeHeight, XmssPubkey pubBytes)
-            False -> error "generateKeyPair: Ed25519 pubkey is not 32 bytes"
+          ed25519Bytes = BA.convert pk :: ByteString
+          -- Pad Ed25519 pubkey (32 bytes) to xmssPubkeySize (52 bytes) for mock XMSS
+          pubBytes = ed25519Bytes <> BS.replicate (xmssPubkeySize - BS.length ed25519Bytes) 0
+      in  Right (PrivateKey sk pk treeHeight, XmssPubkey pubBytes)
 
 -- | Sign a message with a given leaf index.
 -- The leaf index is embedded in the signature for verification.
@@ -76,7 +76,8 @@ verify :: XmssPubkey -> ByteString -> XmssSignature -> Either CryptoError Bool
 verify (XmssPubkey pubBytes) message (XmssSignature sigBytes)
   | BS.length sigBytes /= xmssSignatureSize = Left InvalidSignature
   | otherwise =
-      case Ed25519.publicKey pubBytes of
+      -- Extract Ed25519 portion (first 32 bytes) from XMSS pubkey
+      case Ed25519.publicKey (BS.take 32 pubBytes) of
         CryptoFailed _ -> Left InvalidKeyFormat
         CryptoPassed pk ->
           let ed25519SigBytes = BS.take 64 sigBytes

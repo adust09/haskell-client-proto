@@ -26,7 +26,6 @@ import qualified Data.ByteString.Char8 as BS8
 import Data.Time.Clock (UTCTime (..))
 import Data.Time.Calendar (fromGregorian)
 import Data.Word (Word8)
-import qualified Data.Vector as V
 
 import Consensus.Constants
 import Consensus.Types
@@ -37,7 +36,6 @@ import Genesis (GenesisConfig (..), GenesisValidator (..))
 import SSZ.Common (mkBytesN, unBytesN, zeroN)
 import SSZ.List (mkSszList)
 import SSZ.Merkleization (SszHashTreeRoot (..))
-import SSZ.Vector (mkSszVector)
 
 -- | Fork a thread that silently catches exceptions (for test subscribers).
 forkIOSafe :: IO () -> IO ThreadId
@@ -87,11 +85,10 @@ mkSignedTestAttestation privKey vi slot headRoot source target domain =
 
 mkTestGenesisState :: [Validator] -> BeaconState
 mkTestGenesisState vals =
-  let emptyRoots = forceRight $
-        mkSszVector @SLOTS_PER_HISTORICAL_ROOT (V.replicate 64 zeroRoot)
+  let emptyRoots = forceRight $ mkSszList @HISTORICAL_ROOTS_LIMIT []
       valList = forceRight $ mkSszList @VALIDATOR_REGISTRY_LIMIT vals
       balances = forceRight $ mkSszList @VALIDATOR_REGISTRY_LIMIT (map vEffectiveBalance vals)
-      emptyAtts = forceRight $ mkSszList @MAX_ATTESTATIONS_STATE []
+      emptyAtts = forceRight $ mkSszList @MAX_ATTESTATIONS []
       bodyRoot = toRoot mkEmptyBody
   in  BeaconState
     { bsSlot                = 0

@@ -25,10 +25,7 @@ module Consensus.StateTransition
 import Data.List (foldl', sort)
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
-import qualified Data.Vector as V
 import Data.Word (Word64)
-import Data.Proxy (Proxy (..))
-import GHC.TypeNats (natVal)
 
 import Consensus.Constants
 import Consensus.Types
@@ -38,7 +35,6 @@ import SSZ.List (SszList, mkSszList, unSszList)
 import SSZ.Merkleization (SszHashTreeRoot (..))
 import qualified Crypto.LeanSig as LeanSig
 import Crypto.SigningRoot (computeSigningRoot)
-import SSZ.Vector (mkSszVector, unSszVector)
 
 -- ---------------------------------------------------------------------------
 -- Errors
@@ -91,20 +87,18 @@ getAttestationSubnet vi = vi `mod` totalSubnets
 processSlot :: BeaconState -> BeaconState
 processSlot bs =
   let slot = bsSlot bs
-      slotsPerHist = fromIntegral (natVal (Proxy @SLOTS_PER_HISTORICAL_ROOT)) :: Word64
-      slotIdx = fromIntegral (slot `mod` slotsPerHist)
 
-      -- Cache state root
+      -- Cache state root (append to list)
       stateRoot = toRoot bs
-      stateRootsVec = unSszVector (bsStateRoots bs)
+      stateRootsList = unSszList (bsStateRoots bs)
       newStateRoots = forceRight $
-        mkSszVector @SLOTS_PER_HISTORICAL_ROOT (stateRootsVec V.// [(slotIdx, stateRoot)])
+        mkSszList @HISTORICAL_ROOTS_LIMIT (stateRootsList ++ [stateRoot])
 
-      -- Cache block root
+      -- Cache block root (append to list)
       blockRoot = toRoot (bsLatestBlockHeader bs)
-      blockRootsVec = unSszVector (bsBlockRoots bs)
+      blockRootsList = unSszList (bsBlockRoots bs)
       newBlockRoots = forceRight $
-        mkSszVector @SLOTS_PER_HISTORICAL_ROOT (blockRootsVec V.// [(slotIdx, blockRoot)])
+        mkSszList @HISTORICAL_ROOTS_LIMIT (blockRootsList ++ [blockRoot])
 
       -- Prune stale attestations
       newSlot = slot + 1
@@ -113,7 +107,7 @@ processSlot bs =
       prunedAtts = filter
         (\saa -> adSlot (saaData saa) + retentionWindow >= newSlot)
         currentAtts
-      newAtts = forceRight $ mkSszList @MAX_ATTESTATIONS_STATE prunedAtts
+      newAtts = forceRight $ mkSszList @MAX_ATTESTATIONS prunedAtts
 
   in  bs { bsSlot = newSlot
          , bsStateRoots = newStateRoots
@@ -200,7 +194,7 @@ processAttestation bs saa = do
     else Right ()
 
   let currentAtts = unSszList (bsCurrentAttestations bs)
-  case mkSszList @MAX_ATTESTATIONS_STATE (currentAtts ++ [saa]) of
+  case mkSszList @MAX_ATTESTATIONS (currentAtts ++ [saa]) of
     Left _   -> Left (AttestationListError "attestation list overflow")
     Right newAtts -> Right bs { bsCurrentAttestations = newAtts }
 
