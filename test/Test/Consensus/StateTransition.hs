@@ -152,7 +152,7 @@ tests = testGroup "Consensus.StateTransition"
               bits = case mkBitlist @MAX_VALIDATORS_PER_SUBNET [True] of
                        Right b -> b
                        Left _  -> error "mkBitlist"
-              saa = SignedAggregatedAttestation ad 0 bits (LeanMultisigProof "")
+              saa = AggregatedAttestation ad 0 bits (LeanMultisigProof "")
               bs' = case mkSszList @MAX_ATTESTATIONS_STATE [saa] of
                       Right sl -> bs { bsCurrentAttestations = sl }
                       Left _   -> error "mkSszList"
