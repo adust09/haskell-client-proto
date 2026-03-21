@@ -17,11 +17,12 @@ module Consensus.Constants
     -- * Finality
   , slotsToFinality
     -- * Type-level constants
-  , MAX_VALIDATORS_PER_SUBNET
   , MAX_ATTESTATIONS
-  , MAX_ATTESTATIONS_STATE
-  , SLOTS_PER_HISTORICAL_ROOT
+  , HISTORICAL_ROOTS_LIMIT
   , VALIDATOR_REGISTRY_LIMIT
+    -- * Value-level constants
+  , intervalsPerSlot
+  , justificationLookbackSlots
     -- * Crypto sizes
   , xmssSignatureSize
   , xmssPubkeySize
@@ -75,14 +76,24 @@ slotsToFinality :: Word64
 slotsToFinality = 3
 
 -- ---------------------------------------------------------------------------
--- Type-level constants for SSZ collections
+-- Type-level constants for SSZ collections (aligned with leanSpec config.py)
 -- ---------------------------------------------------------------------------
 
-type MAX_VALIDATORS_PER_SUBNET = 256
-type MAX_ATTESTATIONS          = 128
-type MAX_ATTESTATIONS_STATE    = 4096
-type SLOTS_PER_HISTORICAL_ROOT = 64
-type VALIDATOR_REGISTRY_LIMIT  = 1024
+type MAX_ATTESTATIONS         = 4096
+type HISTORICAL_ROOTS_LIMIT   = 262144  -- 2^18
+type VALIDATOR_REGISTRY_LIMIT = 4096    -- 2^12
+
+-- ---------------------------------------------------------------------------
+-- Value-level constants (aligned with leanSpec config.py)
+-- ---------------------------------------------------------------------------
+
+-- | Number of intervals per slot.
+intervalsPerSlot :: Word64
+intervalsPerSlot = 5
+
+-- | Number of slots to look back for justification.
+justificationLookbackSlots :: Word64
+justificationLookbackSlots = 3
 
 -- ---------------------------------------------------------------------------
 -- Crypto sizes
@@ -92,11 +103,9 @@ type VALIDATOR_REGISTRY_LIMIT  = 1024
 xmssSignatureSize :: Int
 xmssSignatureSize = 3112
 
--- | XMSS public key size in bytes.
--- Defaulting to 32 bytes (Merkle tree root only).
--- TODO: Verify against actual leanSig C library headers when obtained.
+-- | XMSS public key size in bytes (aligned with leanSpec: 52 bytes).
 xmssPubkeySize :: Int
-xmssPubkeySize = 32
+xmssPubkeySize = 52
 
 -- ---------------------------------------------------------------------------
 -- Networking
