@@ -20,6 +20,7 @@ module Consensus.Constants
   , MAX_ATTESTATIONS
   , HISTORICAL_ROOTS_LIMIT
   , VALIDATOR_REGISTRY_LIMIT
+  , BYTES_PER_MIB
     -- * Value-level constants
   , intervalsPerSlot
   , justificationLookbackSlots
@@ -82,6 +83,7 @@ slotsToFinality = 3
 type MAX_ATTESTATIONS         = 4096
 type HISTORICAL_ROOTS_LIMIT   = 262144  -- 2^18
 type VALIDATOR_REGISTRY_LIMIT = 4096    -- 2^12
+type BYTES_PER_MIB            = 1048576
 
 -- ---------------------------------------------------------------------------
 -- Value-level constants (aligned with leanSpec config.py)

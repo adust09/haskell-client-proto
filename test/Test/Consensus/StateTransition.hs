@@ -39,6 +39,16 @@ zeroPubkey = case mkXmssPubkey (BS.replicate xmssPubkeySize 0) of
 zeroCheckpoint :: Checkpoint
 zeroCheckpoint = Checkpoint 0 zeroRoot
 
+emptyProof :: AggregatedSignatureProof
+emptyProof = AggregatedSignatureProof
+  { aspParticipants = case mkBitlist @VALIDATOR_REGISTRY_LIMIT [] of
+      Right b -> b
+      Left _  -> error "emptyProof: mkBitlist"
+  , aspProofData = case mkSszList @BYTES_PER_MIB [] of
+      Right l -> l
+      Left _  -> error "emptyProof: mkSszList"
+  }
+
 mkValidator :: Gwei -> Slot -> Slot -> Validator
 mkValidator balance activationSlot exitSlot = Validator
   { vPubkey           = zeroPubkey
@@ -148,7 +158,7 @@ tests = testGroup "Consensus.StateTransition"
               bits = case mkBitlist @VALIDATOR_REGISTRY_LIMIT [True] of
                        Right b -> b
                        Left _  -> error "mkBitlist"
-              saa = SignedAggregatedAttestation ad 0 bits (LeanMultisigProof "")
+              saa = SignedAggregatedAttestation ad 0 bits emptyProof
               bs' = case mkSszList @MAX_ATTESTATIONS [saa] of
                       Right sl -> bs { bsCurrentAttestations = sl }
                       Left _   -> error "mkSszList"

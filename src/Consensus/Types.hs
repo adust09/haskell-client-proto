@@ -9,7 +9,9 @@ module Consensus.Types
   , mkXmssSignature
   , XmssPubkey (..)
   , mkXmssPubkey
-  , LeanMultisigProof (..)
+    -- * Aggregation types
+  , AggregationBits
+  , AggregatedSignatureProof (..)
     -- * Core types
   , Checkpoint (..)
   , AttestationData (..)
@@ -30,13 +32,14 @@ module Consensus.Types
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
 import Data.Map.Strict (Map)
+import Data.Word (Word8)
 import GHC.Generics (Generic, Rep)
 import SSZ.Bitlist (Bitlist)
 import SSZ.Common
 import SSZ.Container ()
 import SSZ.Derive
 import SSZ.List (SszList)
-import SSZ.Merkleization (SszHashTreeRoot (..), merkleize, mixInLength, pack)
+import SSZ.Merkleization (SszHashTreeRoot (..))
 import Consensus.Constants
 
 -- ---------------------------------------------------------------------------
@@ -91,29 +94,25 @@ instance SszHashTreeRoot XmssPubkey where
       Right bn -> hashTreeRoot bn
       Left _   -> error "XmssPubkey: invalid length"
 
--- | ZK proof from leanMultisig aggregation (variable-size).
-newtype LeanMultisigProof = LeanMultisigProof { unLeanMultisigProof :: ByteString }
-  deriving stock (Eq, Show)
+-- | Aggregation bits: global-scope bitlist (VALIDATOR_REGISTRY_LIMIT).
+-- Replaces the old subnet-scoped Bitlist MAX_VALIDATORS_PER_SUBNET.
+type AggregationBits = Bitlist VALIDATOR_REGISTRY_LIMIT
 
-instance Ssz LeanMultisigProof where
-  sszFixedSize = Nothing
+-- | Structured proof from leanMultisig aggregation (SSZ container).
+-- Replaces the old opaque LeanMultisigProof.
+data AggregatedSignatureProof = AggregatedSignatureProof
+  { aspParticipants :: !AggregationBits
+  , aspProofData    :: !(SszList BYTES_PER_MIB Word8)
+  } deriving stock (Generic, Eq, Show)
 
-instance SszEncode LeanMultisigProof where
-  sszEncode = unLeanMultisigProof
-
-instance SszDecode LeanMultisigProof where
-  sszDecode = Right . LeanMultisigProof
-
--- | Max capacity for LeanMultisigProof in bytes (32KB).
--- Used for merkleization limit calculation.
-leanMultisigProofMaxSize :: Int
-leanMultisigProofMaxSize = 32768
-
-instance SszHashTreeRoot LeanMultisigProof where
-  hashTreeRoot (LeanMultisigProof bs) =
-    let chunks = pack [bs]
-        limit  = max 1 (fromIntegral ((leanMultisigProofMaxSize + 31) `div` 32))
-    in  mixInLength (merkleize chunks limit) (fromIntegral (BS.length bs))
+instance Ssz AggregatedSignatureProof where
+  sszFixedSize = genericSszFixedSize @(Rep AggregatedSignatureProof)
+instance SszEncode AggregatedSignatureProof where
+  sszEncode = genericSszEncode
+instance SszDecode AggregatedSignatureProof where
+  sszDecode = genericSszDecode
+instance SszHashTreeRoot AggregatedSignatureProof where
+  hashTreeRoot = genericHashTreeRoot
 
 -- ---------------------------------------------------------------------------
 -- Core consensus types
@@ -167,8 +166,8 @@ instance SszHashTreeRoot SignedAttestation where
 data SignedAggregatedAttestation = SignedAggregatedAttestation
   { saaData             :: !AttestationData
   , saaSubnetId         :: !SubnetId
-  , saaAggregationBits  :: !(Bitlist VALIDATOR_REGISTRY_LIMIT)
-  , saaAggregationProof :: !LeanMultisigProof
+  , saaAggregationBits  :: !AggregationBits
+  , saaAggregationProof :: !AggregatedSignatureProof
   } deriving stock (Generic, Eq, Show)
 
 instance Ssz SignedAggregatedAttestation where
