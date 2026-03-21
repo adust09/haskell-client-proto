@@ -44,8 +44,8 @@ tests = testGroup "Consensus.Types"
           sszIsFixedSize @BeaconBlockHeader @?= True
       , testCase "SignedAttestation is fixed-size" $
           sszIsFixedSize @SignedAttestation @?= True
-      , testCase "SignedAggregatedAttestation is variable-size" $
-          sszIsFixedSize @SignedAggregatedAttestation @?= False
+      , testCase "AggregatedAttestation is variable-size" $
+          sszIsFixedSize @AggregatedAttestation @?= False
       , testCase "BeaconState is variable-size" $
           sszIsFixedSize @BeaconState @?= False
       , testCase "Validator is fixed-size" $

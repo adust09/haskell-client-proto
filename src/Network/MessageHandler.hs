@@ -44,7 +44,7 @@ import SSZ.List (unSszList)
 data GossipMessage
   = GossipBlock !SignedBeaconBlock
   | GossipAttestation !SignedAttestation !SubnetId
-  | GossipAggregation !SignedAggregatedAttestation
+  | GossipAggregation !AggregatedAttestation
   deriving stock (Show)
 
 -- | Validation outcome for a gossip message.
@@ -126,10 +126,10 @@ validateAttestation store sa expectedSubnet currentSlot =
               Right _ -> Accept
 
 -- | Validate a gossiped aggregated attestation (requires IO for multisig verify).
-validateAggregation :: VerifierContext -> Store -> SignedAggregatedAttestation -> Slot
+validateAggregation :: VerifierContext -> Store -> AggregatedAttestation -> Slot
                     -> IO ValidationResult
 validateAggregation verifier store saa currentSlot = do
-  let ad = saaData saa
+  let ad = aaData saa
       attSlot = adSlot ad
   if attSlot > currentSlot
     then pure Reject
