@@ -1,12 +1,10 @@
 module Test.Consensus.Types (tests) where
 
 import qualified Data.ByteString as BS
-import Data.Word (Word8, Word64)
+import Data.Word (Word64)
 import Test.Tasty
 import Test.Tasty.HUnit
-import SSZ.Bitlist (mkBitlist)
 import SSZ.Common
-import SSZ.List (mkSszList)
 import SSZ.Merkleization (SszHashTreeRoot (..), merkleize)
 import Consensus.Constants
 import Consensus.Types
@@ -46,8 +44,8 @@ tests = testGroup "Consensus.Types"
           sszIsFixedSize @BeaconBlockHeader @?= True
       , testCase "SignedAttestation is fixed-size" $
           sszIsFixedSize @SignedAttestation @?= True
-      , testCase "SignedAggregatedAttestation is variable-size" $
-          sszIsFixedSize @SignedAggregatedAttestation @?= False
+      , testCase "AggregatedAttestation is variable-size" $
+          sszIsFixedSize @AggregatedAttestation @?= False
       , testCase "BeaconState is variable-size" $
           sszIsFixedSize @BeaconState @?= False
       , testCase "Validator is fixed-size" $
@@ -83,14 +81,10 @@ tests = testGroup "Consensus.Types"
               v = Validator pk 32000000 False 0 maxBound maxBound
           sszDecode (sszEncode v) @?= Right v
       , testCase "AggregatedSignatureProof (empty)" $ do
-          let participants = unsafeRight $ mkBitlist @VALIDATOR_REGISTRY_LIMIT []
-              proofData = unsafeRight $ mkSszList @BYTES_PER_MIB ([] :: [Word8])
-              asp = AggregatedSignatureProof participants proofData
+          let asp = AggregatedSignatureProof (LeanMultisigProof "")
           sszDecode (sszEncode asp) @?= Right asp
       , testCase "AggregatedSignatureProof (with data)" $ do
-          let participants = unsafeRight $ mkBitlist @VALIDATOR_REGISTRY_LIMIT [True, False, True]
-              proofData = unsafeRight $ mkSszList @BYTES_PER_MIB (BS.unpack (BS.pack [1..64]))
-              asp = AggregatedSignatureProof participants proofData
+          let asp = AggregatedSignatureProof (LeanMultisigProof (BS.pack [1..64]))
           sszDecode (sszEncode asp) @?= Right asp
       ]
   , testGroup "hashTreeRoot"

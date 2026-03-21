@@ -4,11 +4,10 @@ import Test.Tasty
 import Test.Tasty.HUnit
 
 import qualified Data.ByteString as BS
-import Consensus.Types (AggregatedSignatureProof (..))
+import Consensus.Types (AggregatedSignatureProof (..), LeanMultisigProof (..))
 import Crypto.Error (CryptoError (..))
 import Crypto.LeanSig (generateKeyPair, sign)
 import Crypto.LeanMultisig
-import SSZ.List (mkSszList, unSszList)
 
 -- | Unwrap a Right or fail.
 unsafeRight :: (Show e) => Either e a -> a
@@ -49,10 +48,9 @@ tests = testGroup "Crypto.LeanMultisig"
           sig = unsafeRight $ sign pk "hello" 0
       asp <- unsafeRight <$> aggregate prover [(pub, sig)] "hello"
       -- Flip a byte in the proof data
-      let proofBytes = BS.pack (unSszList (aspProofData asp))
+      let proofBytes = unLeanMultisigProof (aspProof asp)
           tamperedBytes = BS.take 5 proofBytes <> BS.singleton (BS.index proofBytes 5 + 1) <> BS.drop 6 proofBytes
-          tamperedList = unsafeRight $ mkSszList (BS.unpack tamperedBytes)
-          tampered = asp { aspProofData = tamperedList }
+          tampered = asp { aspProof = LeanMultisigProof tamperedBytes }
       valid <- unsafeRight <$> verifyAggregation verifier tampered [pub] "hello"
       valid @?= False
       teardownProver prover

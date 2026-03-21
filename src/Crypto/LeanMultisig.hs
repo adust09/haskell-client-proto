@@ -16,10 +16,7 @@ import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
 import Data.Word (Word32)
 
-import Consensus.Types (XmssPubkey (..), XmssSignature (..), AggregatedSignatureProof (..))
-import SSZ.Bitlist (mkBitlist)
-import SSZ.Common (SszError)
-import SSZ.List (mkSszList, unSszList)
+import Consensus.Types (XmssPubkey (..), XmssSignature (..), LeanMultisigProof (..), AggregatedSignatureProof (..))
 import Crypto.Error (CryptoError (..))
 import Crypto.Hashing (sha256)
 import qualified Crypto.LeanSig as LeanSig
@@ -59,16 +56,13 @@ aggregate _ signers message = do
           pubkeyBytes = map (\(XmssPubkey p, _) -> p) signers
           aggregateHash = computeAggregateHash pubkeyBytes digests message count
           proofBytes = aggregateHash <> encodeLE32 count <> BS.concat digests
-          participantBools = replicate (length signers) True
-      case mkAggregatedProof participantBools proofBytes of
-        Left _     -> pure (Left (AggregationFailed "failed to construct proof"))
-        Right proof -> pure (Right proof)
+      pure (Right (AggregatedSignatureProof (LeanMultisigProof proofBytes)))
 
 -- | Verify an aggregation proof against a set of public keys and message.
 verifyAggregation :: VerifierContext -> AggregatedSignatureProof -> [XmssPubkey] -> ByteString
                   -> IO (Either CryptoError Bool)
 verifyAggregation _ asp pubkeys message = pure $ do
-  let proof = BS.pack (unSszList (aspProofData asp))
+  let proof = unLeanMultisigProof (aspProof asp)
   -- Parse the proof
   if BS.length proof < 36
     then Right False
@@ -125,10 +119,3 @@ decodeLE32 bs =
 chunksOf :: Int -> ByteString -> [ByteString]
 chunksOf _ bs | BS.null bs = []
 chunksOf n bs = BS.take n bs : chunksOf n (BS.drop n bs)
-
--- | Construct an AggregatedSignatureProof from participant bools and raw proof bytes.
-mkAggregatedProof :: [Bool] -> ByteString -> Either SszError AggregatedSignatureProof
-mkAggregatedProof participantBools proofBytes = do
-  participants <- mkBitlist participantBools
-  proofData <- mkSszList (BS.unpack proofBytes)
-  Right (AggregatedSignatureProof participants proofData)

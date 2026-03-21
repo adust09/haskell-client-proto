@@ -9,10 +9,10 @@ import Test.Tasty.HUnit
 import Consensus.Constants
 import Consensus.Types
 import Consensus.ForkChoice
+import SSZ.Bitlist (mkBitlist)
 import SSZ.Common (mkBytesN, zeroN)
 import SSZ.List (mkSszList)
 import SSZ.Merkleization (SszHashTreeRoot (..))
-
 
 toRoot :: SszHashTreeRoot a => a -> Root
 toRoot a = case mkBytesN @32 (hashTreeRoot a) of
@@ -39,6 +39,11 @@ zeroSig = case mkXmssSignature (BS.replicate xmssSignatureSize 0) of
 zeroCheckpoint :: Checkpoint
 zeroCheckpoint = Checkpoint 0 zeroRoot
 
+mkBlockSignatures :: BlockSignatures
+mkBlockSignatures =
+  let emptyAttSigs = forceRight $ mkSszList @MAX_ATTESTATION_SIGNATURES []
+  in  BlockSignatures emptyAttSigs zeroSig
+
 mkValidatorWithPubkey :: Word8 -> Gwei -> Validator
 mkValidatorWithPubkey w balance =
   let pk = case mkXmssPubkey (BS.replicate xmssPubkeySize w) of
@@ -48,40 +53,39 @@ mkValidatorWithPubkey w balance =
 
 mkGenesisState :: [Validator] -> BeaconState
 mkGenesisState vals =
-  let emptyRoots = case mkSszList @HISTORICAL_ROOTS_LIMIT [] of
-                     Right sl -> sl
-                     Left _   -> error "mkGenesisState: roots"
-      valList = case mkSszList @VALIDATOR_REGISTRY_LIMIT vals of
-                  Right sl -> sl
-                  Left _   -> error "mkGenesisState: validators"
-      balances = case mkSszList @VALIDATOR_REGISTRY_LIMIT
-                      (map vEffectiveBalance vals) of
-                   Right sl -> sl
-                   Left _   -> error "mkGenesisState: balances"
-      emptyAtts = case mkSszList @MAX_ATTESTATIONS [] of
-                    Right sl -> sl
-                    Left _   -> error "mkGenesisState: attestations"
+  let numVals = fromIntegral (length vals)
+      config = Config { cfgNumValidators = numVals }
+      valList = forceRight $ mkSszList @VALIDATORS_LIMIT vals
+      emptyHashes = forceRight $ mkSszList @HISTORICAL_BLOCK_HASHES_LIMIT []
+      emptyJSlots = forceRight $ mkBitlist @JUSTIFIED_SLOTS_LIMIT []
+      emptyJRoots = forceRight $ mkSszList @JUSTIFICATIONS_ROOTS_LIMIT []
+      emptyJVals  = forceRight $ mkBitlist @JUSTIFICATIONS_VALIDATORS_LIMIT []
+      emptyBody = BeaconBlockBody
+        { bbbAttestations = forceRight $ mkSszList @MAX_ATTESTATIONS [] }
+      bodyRoot = toRoot emptyBody
   in  BeaconState
-    { bsSlot                = 0
-    , bsLatestBlockHeader   = BeaconBlockHeader 0 0 zeroRoot zeroRoot zeroRoot
-    , bsBlockRoots          = emptyRoots
-    , bsStateRoots          = emptyRoots
-    , bsValidators          = valList
-    , bsBalances            = balances
-    , bsJustifiedCheckpoint = zeroCheckpoint
-    , bsFinalizedCheckpoint = zeroCheckpoint
-    , bsCurrentAttestations = emptyAtts
+    { bsConfig                   = config
+    , bsSlot                     = 0
+    , bsLatestBlockHeader        = BeaconBlockHeader 0 0 zeroRoot zeroRoot bodyRoot
+    , bsLatestJustified          = zeroCheckpoint
+    , bsLatestFinalized          = zeroCheckpoint
+    , bsHistoricalBlockHashes    = emptyHashes
+    , bsJustifiedSlots           = emptyJSlots
+    , bsValidators               = valList
+    , bsJustificationsRoots      = emptyJRoots
+    , bsJustificationsValidators = emptyJVals
     }
 
 mkEmptyBody :: BeaconBlockBody
 mkEmptyBody = BeaconBlockBody
-  { bbbAttestations = case mkSszList @MAX_ATTESTATIONS [] of
-      Right sl -> sl
-      Left _   -> error "mkEmptyBody"
-  }
+  { bbbAttestations = forceRight $ mkSszList @MAX_ATTESTATIONS [] }
 
 mkGenesisBlock :: BeaconBlock
 mkGenesisBlock = BeaconBlock 0 0 zeroRoot zeroRoot mkEmptyBody
+
+forceRight :: Either e a -> a
+forceRight (Right a) = a
+forceRight (Left _)  = error "forceRight: unexpected Left"
 
 -- ---------------------------------------------------------------------------
 -- Tests
@@ -166,7 +170,7 @@ tests = testGroup "Consensus.ForkChoice"
               gb = mkGenesisBlock
               store = initStore gs gb
               orphanBlock = BeaconBlock 1 0 (mkRoot 99) zeroRoot mkEmptyBody
-              signedOrphan = SignedBeaconBlock orphanBlock zeroSig
+              signedOrphan = SignedBeaconBlock orphanBlock mkBlockSignatures
           case onBlock (store { stCurrentSlot = 1 }) signedOrphan of
             Left OrphanBlock -> pure ()
             other -> assertFailure $ "Expected OrphanBlock, got: " ++ show other
@@ -175,7 +179,7 @@ tests = testGroup "Consensus.ForkChoice"
               gb = mkGenesisBlock
               store = initStore gs gb
               futureBlock = BeaconBlock 5 0 zeroRoot zeroRoot mkEmptyBody
-              signedFuture = SignedBeaconBlock futureBlock zeroSig
+              signedFuture = SignedBeaconBlock futureBlock mkBlockSignatures
           case onBlock store signedFuture of
             Left (BlockSlotInFuture 5 0) -> pure ()
             other -> assertFailure $ "Expected BlockSlotInFuture, got: " ++ show other

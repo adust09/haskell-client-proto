@@ -20,11 +20,10 @@ import Data.Ord (comparing, Down (..))
 import Consensus.Constants
 import Consensus.Types
 import Consensus.StateTransition
-    ( expandAggregationBits
-    , isActiveValidator
-    , checkSlashingConditions
+    ( isActiveValidator
     , stateTransition
     )
+import SSZ.Bitlist (bitlistLen, getBitlistBit)
 import SSZ.Common (mkBytesN, unBytesN)
 import SSZ.List (unSszList)
 import SSZ.Merkleization (SszHashTreeRoot (..))
@@ -59,7 +58,6 @@ initStore genesisState genesisBlock =
     , stBlockStates         = Map.singleton blockRoot genesisState
     , stLatestMessages      = Map.empty
     , stCurrentSlot         = 0
-    , stVoteHistory         = Map.empty
     }
 
 -- ---------------------------------------------------------------------------
@@ -73,52 +71,45 @@ onBlock store signedBlock = do
       blockSlot = bbSlot block
       parentRoot = bbParentRoot block
 
-  -- Slot bounds
   if blockSlot > stCurrentSlot store
     then Left (BlockSlotInFuture blockSlot (stCurrentSlot store))
     else Right ()
 
-  -- Block must not be older than finalized checkpoint
   if blockSlot < cpSlot (stFinalizedCheckpoint store)
     then Left (BlockSlotTooOld blockSlot (cpSlot (stFinalizedCheckpoint store)))
     else Right ()
 
-  -- Parent must exist
   if not (Map.member parentRoot (stBlocks store))
     then Left OrphanBlock
     else Right ()
 
-  -- Get parent state
   parentState <- case Map.lookup parentRoot (stBlockStates store) of
     Nothing -> Left ParentStateNotFound
     Just s  -> Right s
 
-  -- Run state transition
   postState <- case stateTransition parentState signedBlock False of
     Left err -> Left (StateTransitionFailed (show err))
     Right s  -> Right s
 
   let blockRoot = toRoot block
 
-  -- Update store with block and state
   let store1 = store
         { stBlocks      = Map.insert blockRoot block (stBlocks store)
         , stBlockStates = Map.insert blockRoot postState (stBlockStates store)
         }
 
-  -- Update justified/finalized checkpoints from post-state
   let store2 = updateCheckpoints store1 postState
 
-  -- Extract latest messages from block's aggregated attestations
-  let store3 = updateLatestMessagesFromBlock store2 block postState
+  -- Extract latest messages from block's attestations
+  let store3 = updateLatestMessagesFromBlock store2 block
 
   Right store3
 
 -- | Update store checkpoints if post-state has newer justified/finalized.
 updateCheckpoints :: Store -> BeaconState -> Store
 updateCheckpoints store postState =
-  let newJust = bsJustifiedCheckpoint postState
-      newFin  = bsFinalizedCheckpoint postState
+  let newJust = bsLatestJustified postState
+      newFin  = bsLatestFinalized postState
       store1 = if cpSlot newJust > cpSlot (stJustifiedCheckpoint store)
                then store { stJustifiedCheckpoint = newJust }
                else store
@@ -127,17 +118,21 @@ updateCheckpoints store postState =
                else store1
   in  store2
 
--- | Update latest messages from aggregated attestations in a block.
-updateLatestMessagesFromBlock :: Store -> BeaconBlock -> BeaconState -> Store
-updateLatestMessagesFromBlock store block postState =
+-- | Update latest messages from attestations in a block.
+updateLatestMessagesFromBlock :: Store -> BeaconBlock -> Store
+updateLatestMessagesFromBlock store block =
   let atts = unSszList (bbbAttestations (bbBody block))
-      validators = bsValidators postState
-  in  foldl' (\s saa ->
-        let ad = saaData saa
-            subnetId = saaSubnetId saa
-            voterIndices = expandAggregationBits validators subnetId (saaAggregationBits saa)
+  in  foldl' (\s att ->
+        let ad = aaData att
+            bits = aaAggregationBits att
             headRoot = adHeadRoot ad
             attSlot = adSlot ad
+            numBits = bitlistLen bits
+            voterIndices =
+              [ fromIntegral i :: ValidatorIndex
+              | i <- [0 .. numBits - 1]
+              , getBitlistBit bits i
+              ]
         in  foldl' (\s' vi ->
               updateLatestMessage s' vi attSlot headRoot
             ) s voterIndices
@@ -169,18 +164,8 @@ onAttestation store sa = do
     then Left (AttestationSlotInFuture attSlot (stCurrentSlot store))
     else Right ()
 
-  -- Update latest message
   let store1 = updateLatestMessage store vi attSlot (adHeadRoot ad)
-
-  -- Append to vote history and check slashing
-  let history = Map.findWithDefault [] vi (stVoteHistory store1)
-      store2 = store1
-        { stVoteHistory = Map.insert vi (ad : history) (stVoteHistory store1) }
-
-  -- Check slashing (evidence-only, no state mutation)
-  case checkSlashingConditions history ad of
-    Left _evidence -> Right store2  -- log evidence but continue
-    Right ()       -> Right store2
+  Right store1
 
 -- ---------------------------------------------------------------------------
 -- Head selection
@@ -248,7 +233,7 @@ getAncestor store root targetSlot =
       | bbSlot block < targetSlot  -> Nothing
       | otherwise                  -> getAncestor store (bbParentRoot block) targetSlot
 
--- | Check if `descendant` is a descendant of `ancestor`.
+-- | Check if @descendant@ is a descendant of @ancestor@.
 isDescendant :: Store -> Root -> Root -> Bool
 isDescendant store ancestor descendant
   | ancestor == descendant = True

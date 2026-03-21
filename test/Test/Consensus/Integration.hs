@@ -9,10 +9,10 @@ import Consensus.Constants
 import Consensus.Types
 import Consensus.ForkChoice
 import Consensus.StateTransition
+import SSZ.Bitlist (mkBitlist)
 import SSZ.Common (mkBytesN, zeroN)
-import SSZ.List (mkSszList, unSszList)
+import SSZ.List (mkSszList)
 import SSZ.Merkleization (SszHashTreeRoot (..))
-
 
 toRoot :: SszHashTreeRoot a => a -> Root
 toRoot a = case mkBytesN @32 (hashTreeRoot a) of
@@ -29,6 +29,16 @@ zeroRoot = zeroN @32
 zeroCheckpoint :: Checkpoint
 zeroCheckpoint = Checkpoint 0 zeroRoot
 
+zeroSig :: XmssSignature
+zeroSig = case mkXmssSignature (BS.replicate xmssSignatureSize 0) of
+  Right s -> s
+  Left _  -> error "zeroSig"
+
+mkBlockSignatures :: BlockSignatures
+mkBlockSignatures =
+  let emptyAttSigs = forceRight $ mkSszList @MAX_ATTESTATION_SIGNATURES []
+  in  BlockSignatures emptyAttSigs zeroSig
+
 mkValidatorWithPubkey :: Word8 -> Gwei -> Validator
 mkValidatorWithPubkey w balance =
   let pk = case mkXmssPubkey (BS.replicate xmssPubkeySize w) of
@@ -36,44 +46,38 @@ mkValidatorWithPubkey w balance =
              Left _  -> error "mkValidatorWithPubkey"
   in  Validator pk balance False 0 maxBound maxBound
 
-zeroSig :: XmssSignature
-zeroSig = case mkXmssSignature (BS.replicate xmssSignatureSize 0) of
-  Right s -> s
-  Left _  -> error "zeroSig"
-
 mkGenesisState :: [Validator] -> BeaconState
 mkGenesisState vals =
-  let emptyRoots = case mkSszList @HISTORICAL_ROOTS_LIMIT [] of
-                     Right sl -> sl
-                     Left _   -> error "mkGenesisState: roots"
-      valList = case mkSszList @VALIDATOR_REGISTRY_LIMIT vals of
-                  Right sl -> sl
-                  Left _   -> error "mkGenesisState: validators"
-      balances = case mkSszList @VALIDATOR_REGISTRY_LIMIT
-                      (map vEffectiveBalance vals) of
-                   Right sl -> sl
-                   Left _   -> error "mkGenesisState: balances"
-      emptyAtts = case mkSszList @MAX_ATTESTATIONS [] of
-                    Right sl -> sl
-                    Left _   -> error "mkGenesisState: attestations"
+  let numVals = fromIntegral (length vals)
+      config = Config { cfgNumValidators = numVals }
+      valList = forceRight $ mkSszList @VALIDATORS_LIMIT vals
+      emptyHashes = forceRight $ mkSszList @HISTORICAL_BLOCK_HASHES_LIMIT []
+      emptyJSlots = forceRight $ mkBitlist @JUSTIFIED_SLOTS_LIMIT []
+      emptyJRoots = forceRight $ mkSszList @JUSTIFICATIONS_ROOTS_LIMIT []
+      emptyJVals  = forceRight $ mkBitlist @JUSTIFICATIONS_VALIDATORS_LIMIT []
+      emptyBody = BeaconBlockBody
+        { bbbAttestations = forceRight $ mkSszList @MAX_ATTESTATIONS [] }
+      bodyRoot = toRoot emptyBody
   in  BeaconState
-    { bsSlot                = 0
-    , bsLatestBlockHeader   = BeaconBlockHeader 0 0 zeroRoot zeroRoot zeroRoot
-    , bsBlockRoots          = emptyRoots
-    , bsStateRoots          = emptyRoots
-    , bsValidators          = valList
-    , bsBalances            = balances
-    , bsJustifiedCheckpoint = zeroCheckpoint
-    , bsFinalizedCheckpoint = zeroCheckpoint
-    , bsCurrentAttestations = emptyAtts
+    { bsConfig                   = config
+    , bsSlot                     = 0
+    , bsLatestBlockHeader        = BeaconBlockHeader 0 0 zeroRoot zeroRoot bodyRoot
+    , bsLatestJustified          = zeroCheckpoint
+    , bsLatestFinalized          = zeroCheckpoint
+    , bsHistoricalBlockHashes    = emptyHashes
+    , bsJustifiedSlots           = emptyJSlots
+    , bsValidators               = valList
+    , bsJustificationsRoots      = emptyJRoots
+    , bsJustificationsValidators = emptyJVals
     }
 
 mkEmptyBody :: BeaconBlockBody
 mkEmptyBody = BeaconBlockBody
-  { bbbAttestations = case mkSszList @MAX_ATTESTATIONS [] of
-      Right sl -> sl
-      Left _   -> error "mkEmptyBody"
-  }
+  { bbbAttestations = forceRight $ mkSszList @MAX_ATTESTATIONS [] }
+
+forceRight :: Either e a -> a
+forceRight (Right a) = a
+forceRight (Left _)  = error "forceRight: unexpected Left"
 
 -- ---------------------------------------------------------------------------
 -- Tests
@@ -93,7 +97,7 @@ tests = testGroup "Consensus.Integration"
             , bbStateRoot     = zeroRoot
             , bbBody          = mkEmptyBody
             }
-          signedBlock = SignedBeaconBlock block zeroSig
+          signedBlock = SignedBeaconBlock block mkBlockSignatures
       case stateTransition gs signedBlock False of
         Right postState -> do
           bsSlot postState @?= 1
@@ -110,20 +114,5 @@ tests = testGroup "Consensus.Integration"
           store = initStore gs genesisBlock
           genesisRoot = toRoot genesisBlock
 
-      -- The genesis block is the only head
       getHead store @?= genesisRoot
-
-  , testCase "slashed validator has reduced weight in fork choice" $ do
-      let vals = [ mkValidatorWithPubkey 1 32000000
-                 , mkValidatorWithPubkey 2 32000000
-                 ]
-          gs = mkGenesisState vals
-          slashedState = slashValidator gs 0
-          v0 = head (unSszList (bsValidators slashedState))
-      vSlashed v0 @?= True
-      vEffectiveBalance v0 @?= 0
-
-  -- TODO: Port leanSpec state transition vectors and ethlambda fork choice
-  -- test cases once available. For now, hand-written scenarios with explicit
-  -- assertions on checkpoint values.
   ]

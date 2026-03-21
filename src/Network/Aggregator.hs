@@ -19,7 +19,6 @@ import qualified Data.Map.Strict as Map
 import Data.Map.Strict (Map)
 
 import Consensus.Constants (SubnetId, Root, Domain)
-import Consensus.StateTransition (getAttestationSubnet)
 import Consensus.SlotTimer (SlotPhase (..), waitUntilPhase)
 import Consensus.Types
     ( AttestationData, SignedAttestation (..)
@@ -30,7 +29,7 @@ import Consensus.Types
 import Crypto.LeanMultisig (ProverContext)
 import Crypto.Operations (aggregateAttestations)
 import Network.P2P.Types (P2PHandle (..), Topic (..))
-import Network.P2P.Wire (encodeWire, decodeWire)
+import Network.P2P.Wire (decodeWire, encodeWire)
 import SSZ.List (unSszList)
 
 import Data.Time.Clock (UTCTime)
@@ -131,7 +130,7 @@ aggregateAndPublish :: AggregatorEnv -> [XmssPubkey] -> Root
                     -> AttestationData -> [SignedAttestation] -> IO ()
 aggregateAndPublish env pubkeys domain _ad atts = do
   let subnetId = case atts of
-        (sa:_) -> getAttestationSubnet (saValidatorIndex sa)
+        (sa:_) -> saValidatorIndex sa `mod` 4
         []     -> 0
   result <- race
     (threadDelay aggregationTimeoutUs)

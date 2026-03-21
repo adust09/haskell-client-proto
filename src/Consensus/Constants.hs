@@ -16,11 +16,17 @@ module Consensus.Constants
   , networkDelayBound
     -- * Finality
   , slotsToFinality
-    -- * Type-level constants
+    -- * Type-level constants (leanSpec)
   , MAX_ATTESTATIONS
   , HISTORICAL_ROOTS_LIMIT
   , VALIDATOR_REGISTRY_LIMIT
   , BYTES_PER_MIB
+  , VALIDATORS_LIMIT
+  , HISTORICAL_BLOCK_HASHES_LIMIT
+  , JUSTIFIED_SLOTS_LIMIT
+  , JUSTIFICATIONS_ROOTS_LIMIT
+  , JUSTIFICATIONS_VALIDATORS_LIMIT
+  , MAX_ATTESTATION_SIGNATURES
     -- * Value-level constants
   , intervalsPerSlot
   , justificationLookbackSlots
@@ -96,6 +102,14 @@ intervalsPerSlot = 5
 -- | Number of slots to look back for justification.
 justificationLookbackSlots :: Word64
 justificationLookbackSlots = 3
+
+-- leanSpec constants
+type VALIDATORS_LIMIT                  = 4096
+type HISTORICAL_BLOCK_HASHES_LIMIT     = 262144
+type JUSTIFIED_SLOTS_LIMIT             = 262144
+type JUSTIFICATIONS_ROOTS_LIMIT        = 262144
+type JUSTIFICATIONS_VALIDATORS_LIMIT   = 1073741824
+type MAX_ATTESTATION_SIGNATURES        = 4096
 
 -- ---------------------------------------------------------------------------
 -- Crypto sizes
