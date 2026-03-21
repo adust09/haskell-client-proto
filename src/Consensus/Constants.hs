@@ -79,7 +79,7 @@ slotsToFinality = 3
 -- ---------------------------------------------------------------------------
 
 type MAX_VALIDATORS_PER_SUBNET = 256
-type MAX_ATTESTATIONS          = 128
+type MAX_ATTESTATIONS          = 4096
 type MAX_ATTESTATIONS_STATE    = 4096
 type SLOTS_PER_HISTORICAL_ROOT = 64
 type VALIDATOR_REGISTRY_LIMIT  = 1024

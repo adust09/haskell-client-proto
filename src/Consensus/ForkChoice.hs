@@ -133,9 +133,9 @@ updateLatestMessagesFromBlock store block postState =
   let atts = unSszList (bbbAttestations (bbBody block))
       validators = bsValidators postState
   in  foldl' (\s saa ->
-        let ad = saaData saa
-            subnetId = saaSubnetId saa
-            voterIndices = expandAggregationBits validators subnetId (saaAggregationBits saa)
+        let ad = aaData saa
+            subnetId = aaSubnetId saa
+            voterIndices = expandAggregationBits validators subnetId (aaAggregationBits saa)
             headRoot = adHeadRoot ad
             attSlot = adSlot ad
         in  foldl' (\s' vi ->

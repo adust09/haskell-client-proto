@@ -7,7 +7,7 @@ module Validator
 import Control.Concurrent.STM
 
 import Actor (Actor, send)
-import Consensus.Constants (Domain, Root, Slot, ValidatorIndex)
+import Consensus.Constants (Domain, MAX_ATTESTATIONS, Root, Slot, ValidatorIndex)
 import Consensus.ForkChoice (getHead)
 import Consensus.StateTransition (getProposerIndex, processSlots)
 import Consensus.Types
@@ -16,7 +16,7 @@ import Consensus.Types
     , BeaconBlockBody (..)
     , BeaconState (..)
     , Checkpoint (..)
-    , SignedAggregatedAttestation (..)
+    , AggregatedAttestation (..)
     , Store
     )
 import Crypto.KeyManager (ManagedKey)
@@ -77,11 +77,11 @@ proposeBlock env state _store slot = do
 
   -- Filter attestations: only include those from recent slots
   let recentAtts = take 128 $ filter
-        (\saa -> adSlot (saaData saa) + 3 >= slot && adSlot (saaData saa) < slot)
+        (\saa -> adSlot (aaData saa) + 3 >= slot && adSlot (aaData saa) < slot)
         pendingAtts
 
-  body <- case mkSszList @128 recentAtts of
-    Left _  -> pure $ BeaconBlockBody { bbbAttestations = forceRight $ mkSszList @128 [] }
+  body <- case mkSszList @MAX_ATTESTATIONS recentAtts of
+    Left _  -> pure $ BeaconBlockBody { bbbAttestations = forceRight $ mkSszList @MAX_ATTESTATIONS [] }
     Right attList -> pure $ BeaconBlockBody { bbbAttestations = attList }
 
   let block = BeaconBlock
