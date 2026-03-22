@@ -12,9 +12,7 @@ import Consensus.ForkChoice
 import SSZ.Common (mkBytesN, zeroN)
 import SSZ.List (mkSszList)
 import SSZ.Merkleization (SszHashTreeRoot (..))
-import SSZ.Vector (mkSszVector)
 
-import qualified Data.Vector as V
 
 toRoot :: SszHashTreeRoot a => a -> Root
 toRoot a = case mkBytesN @32 (hashTreeRoot a) of
@@ -50,10 +48,8 @@ mkValidatorWithPubkey w balance =
 
 mkGenesisState :: [Validator] -> BeaconState
 mkGenesisState vals =
-  let numHistSlots = 64
-      emptyRoots = case mkSszVector @SLOTS_PER_HISTORICAL_ROOT
-                        (V.replicate numHistSlots zeroRoot) of
-                     Right sv -> sv
+  let emptyRoots = case mkSszList @HISTORICAL_ROOTS_LIMIT [] of
+                     Right sl -> sl
                      Left _   -> error "mkGenesisState: roots"
       valList = case mkSszList @VALIDATOR_REGISTRY_LIMIT vals of
                   Right sl -> sl
@@ -62,7 +58,7 @@ mkGenesisState vals =
                       (map vEffectiveBalance vals) of
                    Right sl -> sl
                    Left _   -> error "mkGenesisState: balances"
-      emptyAtts = case mkSszList @MAX_ATTESTATIONS_STATE [] of
+      emptyAtts = case mkSszList @MAX_ATTESTATIONS [] of
                     Right sl -> sl
                     Left _   -> error "mkGenesisState: attestations"
   in  BeaconState

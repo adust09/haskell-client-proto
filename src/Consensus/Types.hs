@@ -37,7 +37,6 @@ import SSZ.Container ()
 import SSZ.Derive
 import SSZ.List (SszList)
 import SSZ.Merkleization (SszHashTreeRoot (..), merkleize, mixInLength, pack)
-import SSZ.Vector (SszVector)
 import Consensus.Constants
 
 -- ---------------------------------------------------------------------------
@@ -168,7 +167,7 @@ instance SszHashTreeRoot SignedAttestation where
 data AggregatedAttestation = AggregatedAttestation
   { aaData             :: !AttestationData
   , aaSubnetId         :: !SubnetId
-  , aaAggregationBits  :: !(Bitlist MAX_VALIDATORS_PER_SUBNET)
+  , aaAggregationBits  :: !(Bitlist VALIDATOR_REGISTRY_LIMIT)
   , aaAggregationProof :: !LeanMultisigProof
   } deriving stock (Generic, Eq, Show)
 
@@ -263,13 +262,13 @@ instance SszHashTreeRoot Validator where
 data BeaconState = BeaconState
   { bsSlot                :: !Slot
   , bsLatestBlockHeader   :: !BeaconBlockHeader
-  , bsBlockRoots          :: !(SszVector SLOTS_PER_HISTORICAL_ROOT Root)
-  , bsStateRoots          :: !(SszVector SLOTS_PER_HISTORICAL_ROOT Root)
+  , bsBlockRoots          :: !(SszList HISTORICAL_ROOTS_LIMIT Root)
+  , bsStateRoots          :: !(SszList HISTORICAL_ROOTS_LIMIT Root)
   , bsValidators          :: !(SszList VALIDATOR_REGISTRY_LIMIT Validator)
   , bsBalances            :: !(SszList VALIDATOR_REGISTRY_LIMIT Gwei)
   , bsJustifiedCheckpoint :: !Checkpoint
   , bsFinalizedCheckpoint :: !Checkpoint
-  , bsCurrentAttestations :: !(SszList MAX_ATTESTATIONS_STATE AggregatedAttestation)
+  , bsCurrentAttestations :: !(SszList MAX_ATTESTATIONS AggregatedAttestation)
   } deriving stock (Generic, Eq, Show)
 
 instance Ssz BeaconState where

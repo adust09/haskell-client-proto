@@ -19,7 +19,6 @@ import Data.Text.Encoding (encodeUtf8)
 import Data.Time.Clock (UTCTime)
 import Data.Time.Format (defaultTimeLocale, parseTimeM)
 import Data.Word (Word64)
-import qualified Data.Vector as V
 
 import Consensus.Constants
 import Consensus.ForkChoice (initStore)
@@ -27,7 +26,6 @@ import Consensus.Types
 import SSZ.Common (zeroN)
 import SSZ.List (mkSszList)
 import SSZ.Merkleization (SszHashTreeRoot (..))
-import SSZ.Vector (mkSszVector)
 import SSZ.Common (mkBytesN)
 
 -- ---------------------------------------------------------------------------
@@ -91,11 +89,10 @@ initializeGenesisState :: GenesisConfig -> BeaconState
 initializeGenesisState gc =
   let validators = map toValidator (gcValidators gc)
       balances   = map gvBalance (gcValidators gc)
-      emptyRoots = forceRight $
-        mkSszVector @SLOTS_PER_HISTORICAL_ROOT (V.replicate 64 zeroRoot)
+      emptyRoots = forceRight $ mkSszList @HISTORICAL_ROOTS_LIMIT []
       valList    = forceRight $ mkSszList @VALIDATOR_REGISTRY_LIMIT validators
       balList    = forceRight $ mkSszList @VALIDATOR_REGISTRY_LIMIT balances
-      emptyAtts  = forceRight $ mkSszList @MAX_ATTESTATIONS_STATE []
+      emptyAtts  = forceRight $ mkSszList @MAX_ATTESTATIONS []
       bodyRoot   = toRoot mkEmptyBody
   in  BeaconState
     { bsSlot                = 0

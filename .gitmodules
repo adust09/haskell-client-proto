@@ -1,0 +1,3 @@
+[submodule "leanSpec"]
+	path = leanSpec
+	url = https://github.com/leanEthereum/leanSpec.git
