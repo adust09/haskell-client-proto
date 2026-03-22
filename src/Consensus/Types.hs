@@ -9,6 +9,8 @@ module Consensus.Types
   , XmssPubkey (..)
   , mkXmssPubkey
   , LeanMultisigProof (..)
+    -- * Aggregation types
+  , AggregationBits
     -- * Core types
   , Config (..)
   , Checkpoint (..)
@@ -116,6 +118,9 @@ instance SszHashTreeRoot LeanMultisigProof where
         limit  = max 1 (fromIntegral ((leanMultisigProofMaxSize + 31) `div` 32))
     in  mixInLength (merkleize chunks limit) (fromIntegral (BS.length bs))
 
+-- | Aggregation bits: global-scope bitlist (VALIDATOR_REGISTRY_LIMIT).
+type AggregationBits = Bitlist VALIDATOR_REGISTRY_LIMIT
+
 -- ---------------------------------------------------------------------------
 -- Config (leanSpec)
 -- ---------------------------------------------------------------------------
@@ -185,7 +190,7 @@ instance SszHashTreeRoot SignedAttestation where
 -- | Unsigned aggregated attestation (leanSpec: BlockBody.attestations element).
 data AggregatedAttestation = AggregatedAttestation
   { aaData            :: !AttestationData
-  , aaAggregationBits :: !(Bitlist VALIDATOR_REGISTRY_LIMIT)
+  , aaAggregationBits :: !AggregationBits
   } deriving stock (Generic, Eq, Show)
 
 instance Ssz AggregatedAttestation where
