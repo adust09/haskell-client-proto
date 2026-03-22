@@ -16,6 +16,7 @@ module Test.Support.Helpers
   , zeroCheckpoint
   , zeroSig
   , mkEmptyBody
+  , mkBlockSignatures
   , toRoot
   ) where
 
@@ -33,6 +34,7 @@ import Consensus.StateTransition (getProposerIndex, processSlot, stateTransition
 import Crypto.LeanSig (PrivateKey, generateKeyPair, sign)
 import Crypto.SigningRoot (computeSigningRoot)
 import Genesis (GenesisConfig (..), GenesisValidator (..))
+import SSZ.Bitlist (mkBitlist)
 import SSZ.Common (mkBytesN, unBytesN, zeroN)
 import SSZ.List (mkSszList)
 import SSZ.Merkleization (SszHashTreeRoot (..))
@@ -57,6 +59,11 @@ zeroSig :: XmssSignature
 zeroSig = case mkXmssSignature (BS.replicate xmssSignatureSize 0) of
   Right s -> s
   Left _  -> error "zeroSig"
+
+mkBlockSignatures :: BlockSignatures
+mkBlockSignatures =
+  let emptyAttSigs = forceRight $ mkSszList @MAX_ATTESTATION_SIGNATURES []
+  in  BlockSignatures emptyAttSigs zeroSig
 
 mkTestValidator :: Word8 -> Gwei -> Validator
 mkTestValidator w balance =
@@ -85,21 +92,25 @@ mkSignedTestAttestation privKey vi slot headRoot source target domain =
 
 mkTestGenesisState :: [Validator] -> BeaconState
 mkTestGenesisState vals =
-  let emptyRoots = forceRight $ mkSszList @HISTORICAL_ROOTS_LIMIT []
-      valList = forceRight $ mkSszList @VALIDATOR_REGISTRY_LIMIT vals
-      balances = forceRight $ mkSszList @VALIDATOR_REGISTRY_LIMIT (map vEffectiveBalance vals)
-      emptyAtts = forceRight $ mkSszList @MAX_ATTESTATIONS []
+  let numVals = fromIntegral (length vals)
+      config = Config { cfgNumValidators = numVals }
+      valList = forceRight $ mkSszList @VALIDATORS_LIMIT vals
+      emptyHashes = forceRight $ mkSszList @HISTORICAL_BLOCK_HASHES_LIMIT []
+      emptyJSlots = forceRight $ mkBitlist @JUSTIFIED_SLOTS_LIMIT []
+      emptyJRoots = forceRight $ mkSszList @JUSTIFICATIONS_ROOTS_LIMIT []
+      emptyJVals  = forceRight $ mkBitlist @JUSTIFICATIONS_VALIDATORS_LIMIT []
       bodyRoot = toRoot mkEmptyBody
   in  BeaconState
-    { bsSlot                = 0
-    , bsLatestBlockHeader   = BeaconBlockHeader 0 0 zeroRoot zeroRoot bodyRoot
-    , bsBlockRoots          = emptyRoots
-    , bsStateRoots          = emptyRoots
-    , bsValidators          = valList
-    , bsBalances            = balances
-    , bsJustifiedCheckpoint = zeroCheckpoint
-    , bsFinalizedCheckpoint = zeroCheckpoint
-    , bsCurrentAttestations = emptyAtts
+    { bsConfig                   = config
+    , bsSlot                     = 0
+    , bsLatestBlockHeader        = BeaconBlockHeader 0 0 zeroRoot zeroRoot bodyRoot
+    , bsLatestJustified          = zeroCheckpoint
+    , bsLatestFinalized          = zeroCheckpoint
+    , bsHistoricalBlockHashes    = emptyHashes
+    , bsJustifiedSlots           = emptyJSlots
+    , bsValidators               = valList
+    , bsJustificationsRoots      = emptyJRoots
+    , bsJustificationsValidators = emptyJVals
     }
 
 mkTestGenesisBlock :: BeaconBlock
@@ -141,7 +152,7 @@ mkTestSignedBlock st targetSlot =
         , bbStateRoot     = zeroRoot
         , bbBody          = mkEmptyBody
         }
-  in  SignedBeaconBlock block zeroSig
+  in  SignedBeaconBlock block mkBlockSignatures
 
 mkTestSignedBlockWithAtts :: BeaconState -> Slot -> [AggregatedAttestation] -> SignedBeaconBlock
 mkTestSignedBlockWithAtts st targetSlot atts =
@@ -156,7 +167,7 @@ mkTestSignedBlockWithAtts st targetSlot atts =
         , bbStateRoot     = zeroRoot
         , bbBody          = body
         }
-  in  SignedBeaconBlock block zeroSig
+  in  SignedBeaconBlock block mkBlockSignatures
 
 -- | Build a chain of empty blocks from genesis, returning signed blocks and post-states.
 buildChain :: BeaconState -> Int -> ([SignedBeaconBlock], [BeaconState])
