@@ -16,7 +16,10 @@ import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
 import Data.Word (Word32)
 
-import Consensus.Types (XmssPubkey (..), XmssSignature (..), LeanMultisigProof (..))
+import Consensus.Types (XmssPubkey (..), XmssSignature (..), AggregatedSignatureProof (..))
+import SSZ.Bitlist (mkBitlist)
+import SSZ.Common (SszError)
+import SSZ.List (mkSszList, unSszList)
 import Crypto.Error (CryptoError (..))
 import Crypto.Hashing (sha256)
 import qualified Crypto.LeanSig as LeanSig
@@ -45,7 +48,7 @@ teardownVerifier _ = pure ()
 -- Each signature is first verified individually (like a real prover).
 -- Returns an error if inputs are empty or any signature is invalid.
 aggregate :: ProverContext -> [(XmssPubkey, XmssSignature)] -> ByteString
-          -> IO (Either CryptoError LeanMultisigProof)
+          -> IO (Either CryptoError AggregatedSignatureProof)
 aggregate _ [] _ = pure (Left (AggregationFailed "empty input"))
 aggregate _ signers message = do
   -- Verify each signature individually
@@ -55,13 +58,17 @@ aggregate _ signers message = do
       let count = fromIntegral (length signers) :: Word32
           pubkeyBytes = map (\(XmssPubkey p, _) -> p) signers
           aggregateHash = computeAggregateHash pubkeyBytes digests message count
-          proof = aggregateHash <> encodeLE32 count <> BS.concat digests
-      pure (Right (LeanMultisigProof proof))
+          proofBytes = aggregateHash <> encodeLE32 count <> BS.concat digests
+          participantBools = replicate (length signers) True
+      case mkAggregatedProof participantBools proofBytes of
+        Left _     -> pure (Left (AggregationFailed "failed to construct proof"))
+        Right proof -> pure (Right proof)
 
 -- | Verify an aggregation proof against a set of public keys and message.
-verifyAggregation :: VerifierContext -> LeanMultisigProof -> [XmssPubkey] -> ByteString
+verifyAggregation :: VerifierContext -> AggregatedSignatureProof -> [XmssPubkey] -> ByteString
                   -> IO (Either CryptoError Bool)
-verifyAggregation _ (LeanMultisigProof proof) pubkeys message = pure $ do
+verifyAggregation _ asp pubkeys message = pure $ do
+  let proof = BS.pack (unSszList (aspProofData asp))
   -- Parse the proof
   if BS.length proof < 36
     then Right False
@@ -118,3 +125,10 @@ decodeLE32 bs =
 chunksOf :: Int -> ByteString -> [ByteString]
 chunksOf _ bs | BS.null bs = []
 chunksOf n bs = BS.take n bs : chunksOf n (BS.drop n bs)
+
+-- | Construct an AggregatedSignatureProof from participant bools and raw proof bytes.
+mkAggregatedProof :: [Bool] -> ByteString -> Either SszError AggregatedSignatureProof
+mkAggregatedProof participantBools proofBytes = do
+  participants <- mkBitlist participantBools
+  proofData <- mkSszList (BS.unpack proofBytes)
+  Right (AggregatedSignatureProof participants proofData)

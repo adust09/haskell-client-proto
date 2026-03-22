@@ -1,10 +1,12 @@
 module Test.Consensus.Types (tests) where
 
 import qualified Data.ByteString as BS
-import Data.Word (Word64)
+import Data.Word (Word8, Word64)
 import Test.Tasty
 import Test.Tasty.HUnit
+import SSZ.Bitlist (mkBitlist)
 import SSZ.Common
+import SSZ.List (mkSszList)
 import SSZ.Merkleization (SszHashTreeRoot (..), merkleize)
 import Consensus.Constants
 import Consensus.Types
@@ -50,6 +52,8 @@ tests = testGroup "Consensus.Types"
           sszIsFixedSize @BeaconState @?= False
       , testCase "Validator is fixed-size" $
           sszIsFixedSize @Validator @?= True
+      , testCase "AggregatedSignatureProof is variable-size" $
+          sszIsFixedSize @AggregatedSignatureProof @?= False
       , testCase "Validator size uses xmssPubkeySize" $ do
           -- vPubkey(32) + vEffectiveBalance(8) + vSlashed(1) +
           -- vActivationSlot(8) + vExitSlot(8) + vWithdrawableSlot(8) = 65
@@ -78,6 +82,16 @@ tests = testGroup "Consensus.Types"
           let pk = unsafeRight $ mkXmssPubkey (BS.replicate xmssPubkeySize 0x01)
               v = Validator pk 32000000 False 0 maxBound maxBound
           sszDecode (sszEncode v) @?= Right v
+      , testCase "AggregatedSignatureProof (empty)" $ do
+          let participants = unsafeRight $ mkBitlist @VALIDATOR_REGISTRY_LIMIT []
+              proofData = unsafeRight $ mkSszList @BYTES_PER_MIB ([] :: [Word8])
+              asp = AggregatedSignatureProof participants proofData
+          sszDecode (sszEncode asp) @?= Right asp
+      , testCase "AggregatedSignatureProof (with data)" $ do
+          let participants = unsafeRight $ mkBitlist @VALIDATOR_REGISTRY_LIMIT [True, False, True]
+              proofData = unsafeRight $ mkSszList @BYTES_PER_MIB (BS.unpack (BS.pack [1..64]))
+              asp = AggregatedSignatureProof participants proofData
+          sszDecode (sszEncode asp) @?= Right asp
       ]
   , testGroup "hashTreeRoot"
       [ testCase "Checkpoint hashTreeRoot" $ do
