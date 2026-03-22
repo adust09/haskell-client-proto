@@ -17,7 +17,7 @@ import Consensus.Types
   ( AttestationData
   , BeaconBlock
   , SignedAttestation (..)
-  , SignedAggregatedAttestation (..)
+  , AggregatedAttestation (..)
   , SignedBeaconBlock (..)
   , XmssPubkey (..)
   , XmssSignature
@@ -70,7 +70,7 @@ verifyBlock sbb pubkey domain =
 -- All attestations must share the same AttestationData.
 -- The committee list maps committee positions (indices into the list) to pubkeys.
 aggregateAttestations :: ProverContext -> [SignedAttestation] -> [XmssPubkey] -> Domain -> SubnetId
-                      -> IO (Either CryptoError SignedAggregatedAttestation)
+                      -> IO (Either CryptoError AggregatedAttestation)
 aggregateAttestations _ [] _ _ _ = pure (Left (AggregationFailed "empty attestation list"))
 aggregateAttestations prover attestations committee domain subnetId = do
   -- Validate: all attestations must share the same AttestationData
@@ -96,15 +96,15 @@ aggregateAttestations prover attestations committee domain subnetId = do
                 Right proof ->
                   case mkBitlist bits of
                     Left _sszErr -> Left (AggregationFailed "bitlist construction failed")
-                    Right bitlist -> Right (SignedAggregatedAttestation firstData subnetId bitlist proof)
+                    Right bitlist -> Right (AggregatedAttestation firstData subnetId bitlist proof)
 
 -- | Verify an aggregated attestation.
-verifyAggregatedAttestation :: VerifierContext -> SignedAggregatedAttestation
+verifyAggregatedAttestation :: VerifierContext -> AggregatedAttestation
                             -> [XmssPubkey] -> Domain -> IO (Either CryptoError Bool)
 verifyAggregatedAttestation verifier saa pubkeys domain = do
-  let signingRoot = computeSigningRoot (saaData saa) domain
+  let signingRoot = computeSigningRoot (aaData saa) domain
       message = unBytesN signingRoot
-  verifyAggregation verifier (saaAggregationProof saa) pubkeys message
+  verifyAggregation verifier (aaAggregationProof saa) pubkeys message
 
 -- ---------------------------------------------------------------------------
 -- Internal helpers

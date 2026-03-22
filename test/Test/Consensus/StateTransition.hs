@@ -158,7 +158,7 @@ tests = testGroup "Consensus.StateTransition"
               bits = case mkBitlist @VALIDATOR_REGISTRY_LIMIT [True] of
                        Right b -> b
                        Left _  -> error "mkBitlist"
-              saa = SignedAggregatedAttestation ad 0 bits emptyProof
+              saa = AggregatedAttestation ad 0 bits emptyProof
               bs' = case mkSszList @MAX_ATTESTATIONS [saa] of
                       Right sl -> bs { bsCurrentAttestations = sl }
                       Left _   -> error "mkSszList"

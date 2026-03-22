@@ -143,7 +143,7 @@ mkTestSignedBlock st targetSlot =
         }
   in  SignedBeaconBlock block zeroSig
 
-mkTestSignedBlockWithAtts :: BeaconState -> Slot -> [SignedAggregatedAttestation] -> SignedBeaconBlock
+mkTestSignedBlockWithAtts :: BeaconState -> Slot -> [AggregatedAttestation] -> SignedBeaconBlock
 mkTestSignedBlockWithAtts st targetSlot atts =
   let st1 = advanceToSlot st targetSlot
       parentRoot = toRoot (bsLatestBlockHeader st1)

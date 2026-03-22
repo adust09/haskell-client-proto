@@ -17,7 +17,7 @@ import Actor (Actor (..), spawnActor, send, waitActor)
 import Config (NodeConfig (..))
 import qualified Data.Map.Strict as Map
 import Consensus.Types
-  ( SignedAggregatedAttestation (..)
+  ( AggregatedAttestation (..)
   , Store (..)
   , BeaconState (..)
   , AttestationData (..)
@@ -152,10 +152,10 @@ blockchainLoop storage queue = go
 
         BcNewAggregation agg -> do
           store <- atomically $ readForkChoiceStore storage
-          let ad = saaData agg
-              subnetId = saaSubnetId agg
+          let ad = aaData agg
+              subnetId = aaSubnetId agg
               voterIndices = expandAggregationBits
-                (bsValidators (lookupJustifiedState store)) subnetId (saaAggregationBits agg)
+                (bsValidators (lookupJustifiedState store)) subnetId (aaAggregationBits agg)
               headRoot = adHeadRoot ad
               attSlot = adSlot ad
               store' = foldl (\s vi -> updateLatestMsg s vi attSlot headRoot) store voterIndices

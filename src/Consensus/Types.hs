@@ -16,7 +16,7 @@ module Consensus.Types
   , Checkpoint (..)
   , AttestationData (..)
   , SignedAttestation (..)
-  , SignedAggregatedAttestation (..)
+  , AggregatedAttestation (..)
   , BeaconBlockBody (..)
   , BeaconBlock (..)
   , SignedBeaconBlock (..)
@@ -163,24 +163,24 @@ instance SszDecode SignedAttestation where
 instance SszHashTreeRoot SignedAttestation where
   hashTreeRoot = genericHashTreeRoot
 
-data SignedAggregatedAttestation = SignedAggregatedAttestation
-  { saaData             :: !AttestationData
-  , saaSubnetId         :: !SubnetId
-  , saaAggregationBits  :: !AggregationBits
-  , saaAggregationProof :: !AggregatedSignatureProof
+data AggregatedAttestation = AggregatedAttestation
+  { aaData             :: !AttestationData
+  , aaSubnetId         :: !SubnetId
+  , aaAggregationBits  :: !AggregationBits
+  , aaAggregationProof :: !AggregatedSignatureProof
   } deriving stock (Generic, Eq, Show)
 
-instance Ssz SignedAggregatedAttestation where
-  sszFixedSize = genericSszFixedSize @(Rep SignedAggregatedAttestation)
-instance SszEncode SignedAggregatedAttestation where
+instance Ssz AggregatedAttestation where
+  sszFixedSize = genericSszFixedSize @(Rep AggregatedAttestation)
+instance SszEncode AggregatedAttestation where
   sszEncode = genericSszEncode
-instance SszDecode SignedAggregatedAttestation where
+instance SszDecode AggregatedAttestation where
   sszDecode = genericSszDecode
-instance SszHashTreeRoot SignedAggregatedAttestation where
+instance SszHashTreeRoot AggregatedAttestation where
   hashTreeRoot = genericHashTreeRoot
 
 data BeaconBlockBody = BeaconBlockBody
-  { bbbAttestations :: !(SszList MAX_ATTESTATIONS SignedAggregatedAttestation)
+  { bbbAttestations :: !(SszList MAX_ATTESTATIONS AggregatedAttestation)
   } deriving stock (Generic, Eq, Show)
 
 instance Ssz BeaconBlockBody where
@@ -267,7 +267,7 @@ data BeaconState = BeaconState
   , bsBalances            :: !(SszList VALIDATOR_REGISTRY_LIMIT Gwei)
   , bsJustifiedCheckpoint :: !Checkpoint
   , bsFinalizedCheckpoint :: !Checkpoint
-  , bsCurrentAttestations :: !(SszList MAX_ATTESTATIONS SignedAggregatedAttestation)
+  , bsCurrentAttestations :: !(SszList MAX_ATTESTATIONS AggregatedAttestation)
   } deriving stock (Generic, Eq, Show)
 
 instance Ssz BeaconState where

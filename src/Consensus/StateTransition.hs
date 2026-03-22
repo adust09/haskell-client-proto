@@ -105,7 +105,7 @@ processSlot bs =
       retentionWindow = slotsToFinality + 1
       currentAtts = unSszList (bsCurrentAttestations bs)
       prunedAtts = filter
-        (\saa -> adSlot (saaData saa) + retentionWindow >= newSlot)
+        (\saa -> adSlot (aaData saa) + retentionWindow >= newSlot)
         currentAtts
       newAtts = forceRight $ mkSszList @MAX_ATTESTATIONS prunedAtts
 
@@ -176,10 +176,10 @@ expandAggregationBits validators subnetId bits =
 
 processAttestation
   :: BeaconState
-  -> SignedAggregatedAttestation
+  -> AggregatedAttestation
   -> Either StateTransitionError BeaconState
 processAttestation bs saa = do
-  let ad = saaData saa
+  let ad = aaData saa
       attSlot = adSlot ad
 
   if attSlot >= bsSlot bs
@@ -200,7 +200,7 @@ processAttestation bs saa = do
 
 processAttestations
   :: BeaconState
-  -> [SignedAggregatedAttestation]
+  -> [AggregatedAttestation]
   -> Either StateTransitionError BeaconState
 processAttestations = foldl' step . Right
   where
@@ -244,10 +244,10 @@ processJustificationFinalization bs =
          }
   where
     countAttestation (voteAcc, seenAcc) saa =
-      let ad = saaData saa
+      let ad = aaData saa
           target = adTargetCheckpoint ad
-          subnetId = saaSubnetId saa
-          voterIndices = expandAggregationBits (bsValidators bs) subnetId (saaAggregationBits saa)
+          subnetId = aaSubnetId saa
+          voterIndices = expandAggregationBits (bsValidators bs) subnetId (aaAggregationBits saa)
           validators = unSszList (bsValidators bs)
       in  foldl' (\(m, seen) vi ->
             let dedupKey = (vi, cpRoot target)
