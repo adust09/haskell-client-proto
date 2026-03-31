@@ -49,23 +49,17 @@ data StateTransitionError
 -- Validator helpers
 -- ---------------------------------------------------------------------------
 
+-- | All validators are always active in leanSpec (no lifecycle).
 isActiveValidator :: Validator -> Slot -> Bool
-isActiveValidator v slot =
-  vActivationSlot v <= slot && slot < vExitSlot v && not (vSlashed v)
+isActiveValidator _ _ = True
 
--- | Proposer selection: slot % numActiveValidators.
+-- | Proposer selection: slot % numValidators.
 getProposerIndex :: BeaconState -> ValidatorIndex
 getProposerIndex bs =
-  let validators = unSszList (bsValidators bs)
-      activeIndices =
-        [ fromIntegral i :: ValidatorIndex
-        | (i, v) <- zip [(0 :: Int)..] validators
-        , isActiveValidator v (bsSlot bs)
-        ]
-      numActive = fromIntegral (length activeIndices) :: Word64
-  in  if numActive == 0
+  let numVals = fromIntegral (length (unSszList (bsValidators bs))) :: Word64
+  in  if numVals == 0
         then 0
-        else activeIndices !! fromIntegral (bsSlot bs `mod` numActive)
+        else bsSlot bs `mod` numVals
 
 -- ---------------------------------------------------------------------------
 -- Per-slot processing (leanSpec aligned)
@@ -199,22 +193,18 @@ processJustificationFinalization :: BeaconState -> BeaconState
 processJustificationFinalization bs =
   let validators = unSszList (bsValidators bs)
       numValidators = length validators
-      totalActive = sum
-        [ vEffectiveBalance v
-        | v <- validators
-        , isActiveValidator v (bsSlot bs)
-        ]
+      totalActive = fromIntegral numValidators :: Word64
 
       justRoots = unSszList (bsJustificationsRoots bs)
       justBits = bsJustificationsValidators bs
       justBitsLen = bitlistLen justBits
 
-      -- Check each slot for supermajority
+      -- Check each slot for supermajority (flat voting: 1 validator = 1 vote)
       slotVotes =
-        [ (slotIdx, justRoots !! slotIdx, voteWeight)
+        [ (slotIdx, justRoots !! slotIdx, voteCount)
         | slotIdx <- [0 .. length justRoots - 1]
-        , let voteWeight = countSlotVotes validators numValidators justBits justBitsLen slotIdx (bsSlot bs)
-        , voteWeight * 3 >= totalActive * 2
+        , let voteCount = countSlotVotes numValidators justBits justBitsLen slotIdx
+        , voteCount * 3 >= totalActive * 2
         ]
 
       -- Find the latest justified slot
@@ -251,13 +241,14 @@ processJustificationFinalization bs =
          , bsJustifiedSlots  = newJustifiedSlots
          }
 
--- | Count the total vote weight for a slot in justifications_validators.
+-- | Count the number of votes for a slot in justifications_validators.
+-- Flat voting: each validator contributes 1 vote (no balance weighting).
 countSlotVotes
-  :: [Validator] -> Int -> Bitlist JUSTIFICATIONS_VALIDATORS_LIMIT -> Int -> Int -> Slot -> Gwei
-countSlotVotes validators numValidators justBits justBitsLen slotIdx currentSlot =
-  sum [ vEffectiveBalance v
-      | (vIdx, v) <- zip [0..] validators
-      , isActiveValidator v currentSlot
+  :: Int -> Bitlist JUSTIFICATIONS_VALIDATORS_LIMIT -> Int -> Int -> Word64
+countSlotVotes numValidators justBits justBitsLen slotIdx =
+  fromIntegral $ length
+      [ ()
+      | vIdx <- [0 .. numValidators - 1]
       , let bitIdx = slotIdx * numValidators + vIdx
       , bitIdx < justBitsLen
       , getBitlistBit justBits bitIdx

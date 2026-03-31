@@ -62,8 +62,8 @@ sampleGenesisJson :: BL.ByteString
 sampleGenesisJson = BL.pack $ concat
   [ "{\"genesis_time\":\"2026-01-01T00:00:00Z\""
   , ",\"validators\":["
-  , "{\"pubkey\":\"0x" <> replicate 104 '0' <> "\",\"balance\":32000000000}"
-  , ",{\"pubkey\":\"0x" <> replicate 104 'a' <> "\",\"balance\":32000000000}"
+  , "{\"attestation_pubkey\":\"0x" <> replicate 104 '0' <> "\",\"proposal_pubkey\":\"0x" <> replicate 104 '0' <> "\"}"
+  , ",{\"attestation_pubkey\":\"0x" <> replicate 104 'a' <> "\",\"proposal_pubkey\":\"0x" <> replicate 104 'a' <> "\"}"
   , "]"
   , ",\"fork_version\":\"0x00000001\""
   , ",\"chain_id\":1337"

@@ -35,8 +35,8 @@ import SSZ.Common (mkBytesN)
 -- ---------------------------------------------------------------------------
 
 data GenesisValidator = GenesisValidator
-  { gvPubkey  :: !XmssPubkey
-  , gvBalance :: !Gwei
+  { gvAttestationPubkey :: !XmssPubkey
+  , gvProposalPubkey    :: !XmssPubkey
   } deriving stock (Eq, Show)
 
 data GenesisConfig = GenesisConfig
@@ -52,12 +52,17 @@ data GenesisConfig = GenesisConfig
 
 instance FromJSON GenesisValidator where
   parseJSON = withObject "GenesisValidator" $ \o -> do
-    pubkeyHex <- o .: "pubkey"
-    balance   <- o .: "balance"
-    pubkeyBs  <- parseHexField "pubkey" pubkeyHex
-    case mkXmssPubkey pubkeyBs of
-      Left err -> fail $ "Invalid pubkey: " <> show err
-      Right pk -> pure $ GenesisValidator pk balance
+    attPubkeyHex  <- o .: "attestation_pubkey"
+    propPubkeyHex <- o .: "proposal_pubkey"
+    attBs  <- parseHexField "attestation_pubkey" attPubkeyHex
+    propBs <- parseHexField "proposal_pubkey" propPubkeyHex
+    attPk  <- case mkXmssPubkey attBs of
+      Left err -> fail $ "Invalid attestation_pubkey: " <> show err
+      Right pk -> pure pk
+    propPk <- case mkXmssPubkey propBs of
+      Left err -> fail $ "Invalid proposal_pubkey: " <> show err
+      Right pk -> pure pk
+    pure $ GenesisValidator attPk propPk
 
 instance FromJSON GenesisConfig where
   parseJSON = withObject "GenesisConfig" $ \o -> do
@@ -89,7 +94,7 @@ parseHexField fieldName hexStr = do
 -- | Build the genesis BeaconState from configuration (leanSpec 10-field model).
 initializeGenesisState :: GenesisConfig -> BeaconState
 initializeGenesisState gc =
-  let validators = map toValidator (gcValidators gc)
+  let validators = zipWith toValidator [0..] (gcValidators gc)
       genesisTimeUnix = floor (utcTimeToPOSIXSeconds (gcGenesisTime gc)) :: Word64
       config = Config { cfgGenesisTime = genesisTimeUnix }
       valList    = forceRight $ mkSszList @VALIDATORS_LIMIT validators
@@ -135,14 +140,11 @@ parseGenesisConfig = Aeson.eitherDecode
 -- Internal helpers
 -- ---------------------------------------------------------------------------
 
-toValidator :: GenesisValidator -> Validator
-toValidator gv = Validator
-  { vPubkey           = gvPubkey gv
-  , vEffectiveBalance = gvBalance gv
-  , vSlashed          = False
-  , vActivationSlot   = 0
-  , vExitSlot         = maxBound
-  , vWithdrawableSlot = maxBound
+toValidator :: ValidatorIndex -> GenesisValidator -> Validator
+toValidator idx gv = Validator
+  { vAttestationPubkey = gvAttestationPubkey gv
+  , vProposalPubkey    = gvProposalPubkey gv
+  , vIndex             = idx
   }
 
 mkEmptyBody :: BeaconBlockBody

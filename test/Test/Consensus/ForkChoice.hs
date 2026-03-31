@@ -44,12 +44,12 @@ mkBlockSignatures =
   let emptyAttSigs = forceRight $ mkSszList @MAX_ATTESTATION_SIGNATURES []
   in  BlockSignatures emptyAttSigs zeroSig
 
-mkValidatorWithPubkey :: Word8 -> Gwei -> Validator
-mkValidatorWithPubkey w balance =
+mkValidatorWithPubkey :: Word8 -> ValidatorIndex -> Validator
+mkValidatorWithPubkey w idx =
   let pk = case mkXmssPubkey (BS.replicate xmssPubkeySize w) of
              Right p -> p
              Left _  -> error "mkValidatorWithPubkey failed"
-  in  Validator pk balance False 0 maxBound maxBound
+  in  Validator pk pk idx
 
 mkGenesisState :: [Validator] -> BeaconState
 mkGenesisState vals =
@@ -94,7 +94,7 @@ tests :: TestTree
 tests = testGroup "Consensus.ForkChoice"
   [ testGroup "initStore"
       [ testCase "genesis head is genesis block root" $ do
-          let gs = mkGenesisState [mkValidatorWithPubkey 1 32000000]
+          let gs = mkGenesisState [mkValidatorWithPubkey 1 0]
               gb = mkGenesisBlock
               store = initStore gs gb
               head' = getHead store
@@ -103,14 +103,14 @@ tests = testGroup "Consensus.ForkChoice"
       ]
   , testGroup "getHead"
       [ testCase "returns genesis with no other blocks" $ do
-          let gs = mkGenesisState [mkValidatorWithPubkey 1 32000000]
+          let gs = mkGenesisState [mkValidatorWithPubkey 1 0]
               gb = mkGenesisBlock
               store = initStore gs gb
           getHead store @?= toRoot gb
       ]
   , testGroup "onAttestation"
       [ testCase "updates latest message" $ do
-          let gs = mkGenesisState [mkValidatorWithPubkey 1 32000000]
+          let gs = mkGenesisState [mkValidatorWithPubkey 1 0]
               gb = mkGenesisBlock
               store = initStore gs gb
               gbRoot = toRoot gb
@@ -126,7 +126,7 @@ tests = testGroup "Consensus.ForkChoice"
                 Nothing -> assertFailure "Expected latest message"
             Left err -> assertFailure $ show err
       , testCase "rejects future attestation" $ do
-          let gs = mkGenesisState [mkValidatorWithPubkey 1 32000000]
+          let gs = mkGenesisState [mkValidatorWithPubkey 1 0]
               gb = mkGenesisBlock
               store = initStore gs gb
               ad = AttestationData 5 zeroRoot zeroCheckpoint zeroCheckpoint
@@ -137,13 +137,13 @@ tests = testGroup "Consensus.ForkChoice"
       ]
   , testGroup "getAncestor"
       [ testCase "finds self at same slot" $ do
-          let gs = mkGenesisState [mkValidatorWithPubkey 1 32000000]
+          let gs = mkGenesisState [mkValidatorWithPubkey 1 0]
               gb = mkGenesisBlock
               store = initStore gs gb
               gbRoot = toRoot gb
           getAncestor store gbRoot 0 @?= Just gbRoot
       , testCase "returns Nothing for future slot" $ do
-          let gs = mkGenesisState [mkValidatorWithPubkey 1 32000000]
+          let gs = mkGenesisState [mkValidatorWithPubkey 1 0]
               gb = mkGenesisBlock
               store = initStore gs gb
               gbRoot = toRoot gb
@@ -151,13 +151,13 @@ tests = testGroup "Consensus.ForkChoice"
       ]
   , testGroup "isDescendant"
       [ testCase "block is descendant of itself" $ do
-          let gs = mkGenesisState [mkValidatorWithPubkey 1 32000000]
+          let gs = mkGenesisState [mkValidatorWithPubkey 1 0]
               gb = mkGenesisBlock
               store = initStore gs gb
               gbRoot = toRoot gb
           isDescendant store gbRoot gbRoot @?= True
       , testCase "unknown root is not a descendant" $ do
-          let gs = mkGenesisState [mkValidatorWithPubkey 1 32000000]
+          let gs = mkGenesisState [mkValidatorWithPubkey 1 0]
               gb = mkGenesisBlock
               store = initStore gs gb
               gbRoot = toRoot gb
@@ -165,7 +165,7 @@ tests = testGroup "Consensus.ForkChoice"
       ]
   , testGroup "onBlock"
       [ testCase "rejects orphan block" $ do
-          let gs = mkGenesisState [mkValidatorWithPubkey 1 32000000]
+          let gs = mkGenesisState [mkValidatorWithPubkey 1 0]
               gb = mkGenesisBlock
               store = initStore gs gb
               orphanBlock = BeaconBlock 1 0 (mkRoot 99) zeroRoot mkEmptyBody
@@ -174,7 +174,7 @@ tests = testGroup "Consensus.ForkChoice"
             Left OrphanBlock -> pure ()
             other -> assertFailure $ "Expected OrphanBlock, got: " ++ show other
       , testCase "rejects future block" $ do
-          let gs = mkGenesisState [mkValidatorWithPubkey 1 32000000]
+          let gs = mkGenesisState [mkValidatorWithPubkey 1 0]
               gb = mkGenesisBlock
               store = initStore gs gb
               futureBlock = BeaconBlock 5 0 zeroRoot zeroRoot mkEmptyBody
@@ -185,7 +185,7 @@ tests = testGroup "Consensus.ForkChoice"
       ]
   , testGroup "getWeight"
       [ testCase "zero weight with no attestations" $ do
-          let gs = mkGenesisState [mkValidatorWithPubkey 1 32000000]
+          let gs = mkGenesisState [mkValidatorWithPubkey 1 0]
               gb = mkGenesisBlock
               store = initStore gs gb
           getWeight store (toRoot gb) @?= 0

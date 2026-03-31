@@ -295,12 +295,9 @@ instance SszHashTreeRoot BeaconBlockHeader where
   hashTreeRoot = genericHashTreeRoot
 
 data Validator = Validator
-  { vPubkey           :: !XmssPubkey
-  , vEffectiveBalance :: !Gwei
-  , vSlashed          :: !Bool
-  , vActivationSlot   :: !Slot
-  , vExitSlot         :: !Slot
-  , vWithdrawableSlot :: !Slot
+  { vAttestationPubkey :: !XmssPubkey
+  , vProposalPubkey    :: !XmssPubkey
+  , vIndex             :: !ValidatorIndex
   } deriving stock (Generic, Eq, Show)
 
 instance Ssz Validator where

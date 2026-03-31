@@ -39,12 +39,12 @@ mkBlockSignatures =
   let emptyAttSigs = forceRight $ mkSszList @MAX_ATTESTATION_SIGNATURES []
   in  BlockSignatures emptyAttSigs zeroSig
 
-mkValidatorWithPubkey :: Word8 -> Gwei -> Validator
-mkValidatorWithPubkey w balance =
+mkValidatorWithPubkey :: Word8 -> ValidatorIndex -> Validator
+mkValidatorWithPubkey w idx =
   let pk = case mkXmssPubkey (BS.replicate xmssPubkeySize w) of
              Right p -> p
              Left _  -> error "mkValidatorWithPubkey"
-  in  Validator pk balance False 0 maxBound maxBound
+  in  Validator pk pk idx
 
 mkGenesisState :: [Validator] -> BeaconState
 mkGenesisState vals =
@@ -85,7 +85,7 @@ forceRight (Left _)  = error "forceRight: unexpected Left"
 tests :: TestTree
 tests = testGroup "Consensus.Integration"
   [ testCase "state transition advances slot and updates header" $ do
-      let vals = [mkValidatorWithPubkey 1 32000000]
+      let vals = [mkValidatorWithPubkey 1 0]
           gs = mkGenesisState vals
           gs1 = processSlot gs  -- slot 0 -> 1
           parentRoot = toRoot (bsLatestBlockHeader gs1)
@@ -104,9 +104,9 @@ tests = testGroup "Consensus.Integration"
         Left err -> assertFailure $ "State transition failed: " ++ show err
 
   , testCase "fork choice selects heavier chain" $ do
-      let vals = [ mkValidatorWithPubkey 1 32000000
-                 , mkValidatorWithPubkey 2 32000000
-                 , mkValidatorWithPubkey 3 32000000
+      let vals = [ mkValidatorWithPubkey 1 0
+                 , mkValidatorWithPubkey 2 1
+                 , mkValidatorWithPubkey 3 2
                  ]
           gs = mkGenesisState vals
           genesisBlock = BeaconBlock 0 0 zeroRoot zeroRoot mkEmptyBody

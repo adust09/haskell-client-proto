@@ -114,7 +114,7 @@ aggregatorLoop env = do
     Nothing -> pure ()
     Just bs -> do
       let validators = unSszList (bsValidators bs)
-          pubkeys = [ vPubkey v | v <- validators ]
+          pubkeys = [ vAttestationPubkey v | v <- validators ]
           domain = aeDomain env
 
       -- Aggregate each group with timeout

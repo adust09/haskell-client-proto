@@ -32,7 +32,7 @@ tests = testGroup "Storage"
 
 mkEnv :: (BeaconState -> Store -> [SignedBeaconBlock] -> [BeaconState] -> IO a) -> IO a
 mkEnv action = do
-  let vals = [mkTestValidator i 32 | i <- [1..4]]
+  let vals = [mkTestValidator i (fromIntegral (i - 1)) | i <- [1..4]]
       gs   = mkTestGenesisState vals
       gb   = mkTestGenesisBlock
       store = initStore gs gb
@@ -111,7 +111,7 @@ testPrune = mkEnv $ \gs _store blocks _states ->
 -- | 4 async threads each put+get 10 blocks, no lost writes.
 testConcurrent :: Assertion
 testConcurrent = do
-  let vals = [mkTestValidator i 32 | i <- [1..4]]
+  let vals = [mkTestValidator i (fromIntegral (i - 1)) | i <- [1..4]]
       gs   = mkTestGenesisState vals
       gb   = mkTestGenesisBlock
       store = initStore gs gb

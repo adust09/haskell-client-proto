@@ -20,8 +20,7 @@ import Data.Ord (comparing, Down (..))
 import Consensus.Constants
 import Consensus.Types
 import Consensus.StateTransition
-    ( isActiveValidator
-    , stateTransition
+    ( stateTransition
     )
 import SSZ.Bitlist (bitlistLen, getBitlistBit)
 import SSZ.Common (mkBytesN, unBytesN)
@@ -207,21 +206,15 @@ getWeight store root =
           , msgRoot == root || isDescendant store root msgRoot
           ]
 
--- | Get effective balance of an active non-slashed validator.
+-- | Flat weight: each validator contributes 1 (no balance weighting in leanSpec).
 getValidatorWeight :: Store -> ValidatorIndex -> Gwei
 getValidatorWeight store vi =
   let justRoot = cpRoot (stJustifiedCheckpoint store)
   in  case Map.lookup justRoot (stBlockStates store) of
         Nothing -> 0
         Just bs ->
-          let validators = unSszList (bsValidators bs)
-              idx = fromIntegral vi
-          in  if idx < length validators
-                then let v = validators !! idx
-                     in  if isActiveValidator v (bsSlot bs)
-                           then vEffectiveBalance v
-                           else 0
-                else 0
+          let numVals = length (unSszList (bsValidators bs))
+          in  if fromIntegral vi < numVals then 1 else 0
 
 -- | Get ancestor of a block at a target slot.
 getAncestor :: Store -> Root -> Slot -> Maybe Root
