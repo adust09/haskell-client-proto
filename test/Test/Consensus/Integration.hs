@@ -48,8 +48,7 @@ mkValidatorWithPubkey w balance =
 
 mkGenesisState :: [Validator] -> BeaconState
 mkGenesisState vals =
-  let numVals = fromIntegral (length vals)
-      config = Config { cfgNumValidators = numVals }
+  let config = Config { cfgGenesisTime = 0 }
       valList = forceRight $ mkSszList @VALIDATORS_LIMIT vals
       emptyHashes = forceRight $ mkSszList @HISTORICAL_BLOCK_HASHES_LIMIT []
       emptyJSlots = forceRight $ mkBitlist @JUSTIFIED_SLOTS_LIMIT []
