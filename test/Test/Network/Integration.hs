@@ -111,7 +111,7 @@ tests = testGroup "Network.Integration"
           domain = cpRoot genCp
 
       let pubkeys = [ vPubkey v | v <- unSszList (bsValidators st1) ]
-          target1 = Checkpoint 1 block1Root
+          target1 = Checkpoint block1Root 1
           subnetVis = [ vi | vi <- [0 .. 7 :: Int], vi `mod` 4 == 0 ]
           atts = [ mkSignedTestAttestation (privKeys !! i) (fromIntegral i)
                      1 block1Root genCp target1 domain

@@ -224,7 +224,7 @@ processJustificationFinalization bs =
           let (bestSlotIdx, bestRoot, _) = foldl1
                 (\a@(s1, _, _) b@(s2, _, _) -> if s1 >= s2 then a else b) xs
               bestSlot = fromIntegral bestSlotIdx :: Slot
-              newCp = Checkpoint bestSlot bestRoot
+              newCp = Checkpoint bestRoot bestSlot
               -- Mark the slot as justified in justified_slots
               currentJSlots = bsJustifiedSlots bs
               currentJLen = bitlistLen currentJSlots

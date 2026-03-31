@@ -37,7 +37,7 @@ zeroSig = case mkXmssSignature (BS.replicate xmssSignatureSize 0) of
   Left _  -> error "zeroSig failed"
 
 zeroCheckpoint :: Checkpoint
-zeroCheckpoint = Checkpoint 0 zeroRoot
+zeroCheckpoint = Checkpoint zeroRoot 0
 
 mkBlockSignatures :: BlockSignatures
 mkBlockSignatures =

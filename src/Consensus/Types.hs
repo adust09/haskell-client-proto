@@ -143,8 +143,8 @@ instance SszHashTreeRoot Config where
 -- ---------------------------------------------------------------------------
 
 data Checkpoint = Checkpoint
-  { cpSlot :: !Slot
-  , cpRoot :: !Root
+  { cpRoot :: !Root
+  , cpSlot :: !Slot
   } deriving stock (Generic, Eq, Ord, Show)
 
 instance Ssz Checkpoint where

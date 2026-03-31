@@ -53,7 +53,7 @@ zeroRoot :: Root
 zeroRoot = zeroN @32
 
 zeroCheckpoint :: Checkpoint
-zeroCheckpoint = Checkpoint 0 zeroRoot
+zeroCheckpoint = Checkpoint zeroRoot 0
 
 zeroSig :: XmssSignature
 zeroSig = case mkXmssSignature (BS.replicate xmssSignatureSize 0) of
