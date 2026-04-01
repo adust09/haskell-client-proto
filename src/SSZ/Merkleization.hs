@@ -176,22 +176,25 @@ instance KnownNat n => SszHashTreeRoot (Bitlist n) where
         root = merkleize chunks limit
     in  mixInLength root (fromIntegral len)
 
--- SszVector (fixed-size elements): merkleize(pack(map encode elems), limit=n)
+-- SszVector (fixed-size elements): merkleize(pack(map encode elems), limit=chunkLimit)
 -- SszVector (composite elements): merkleize(map hashTreeRoot elems, limit=n)
+-- For fixed-size elements, the limit must be in chunks: (N * size + 31) / 32
 instance (KnownNat n, SszHashTreeRoot a, SszEncode a, Ssz a)
       => SszHashTreeRoot (SszVector n a) where
   hashTreeRoot sv =
     let n = fromIntegral (natVal (Proxy @n))
         elems = V.toList (unSszVector sv)
     in  case sszFixedSize @a of
-          Just _ ->
+          Just s ->
             let chunks = pack (map sszEncode elems)
-            in  merkleize chunks n
+                chunkLimit = (n * fromIntegral s + 31) `div` 32
+            in  merkleize chunks chunkLimit
           Nothing ->
             merkleize (map hashTreeRoot elems) n
 
--- SszList (fixed-size elements): mixInLength(merkleize(pack(map encode elems), limit=n), len)
+-- SszList (fixed-size elements): mixInLength(merkleize(pack(map encode elems), limit=chunkLimit), len)
 -- SszList (composite elements): mixInLength(merkleize(map hashTreeRoot elems, limit=n), len)
+-- For fixed-size elements, the limit must be in chunks: (N * size + 31) / 32
 instance (KnownNat n, SszHashTreeRoot a, SszEncode a, Ssz a)
       => SszHashTreeRoot (SszList n a) where
   hashTreeRoot sl =
@@ -199,9 +202,10 @@ instance (KnownNat n, SszHashTreeRoot a, SszEncode a, Ssz a)
         elems = unSszList sl
         len = fromIntegral (length elems)
         root = case sszFixedSize @a of
-          Just _ ->
+          Just s ->
             let chunks = pack (map sszEncode elems)
-            in  merkleize chunks n
+                chunkLimit = (n * fromIntegral s + 31) `div` 32
+            in  merkleize chunks chunkLimit
           Nothing ->
             merkleize (map hashTreeRoot elems) n
     in  mixInLength root len

@@ -177,3 +177,37 @@ test-suite lean-consensus-test
       , base16-bytestring >= 1.0 && < 1.1
       , wai             >= 3.2  && < 3.3
       , http-types      >= 0.12 && < 0.13
+
+benchmark lean-consensus-bench
+    import:           warnings
+    type:             exitcode-stdio-1.0
+    main-is:          Main.hs
+    hs-source-dirs:   bench
+    default-language: GHC2021
+    default-extensions:
+        DataKinds
+        TypeApplications
+        ScopedTypeVariables
+        OverloadedStrings
+        DerivingStrategies
+    other-modules:
+        Bench.SSZ.Encoding
+        Bench.SSZ.Merkleization
+        Bench.Crypto.Hashing
+        Bench.Crypto.LeanSig
+        Bench.Crypto.LeanMultisig
+        Bench.Consensus.StateTransition
+        Bench.Consensus.ForkChoice
+        Bench.Network.Wire
+        Bench.Storage
+        Bench.Support.Generators
+    build-depends:
+        base           >= 4.18 && < 5
+      , lean-consensus
+      , tasty-bench    >= 0.3  && < 0.5
+      , tasty          >= 1.4  && < 1.6
+      , bytestring     >= 0.11 && < 0.13
+      , vector         >= 0.13 && < 0.14
+      , containers     >= 0.6  && < 0.8
+      , deepseq        >= 1.4  && < 1.6
+    ghc-options: -O2 -rtsopts
