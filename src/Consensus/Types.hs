@@ -17,6 +17,7 @@ module Consensus.Types
   , AttestationData (..)
   , SignedAttestation (..)
   , AggregatedAttestation (..)
+  , SignedAggregatedAttestation (..)
   , AggregatedSignatureProof (..)
   , BeaconBlockBody (..)
   , BeaconBlock (..)
@@ -187,10 +188,10 @@ instance SszDecode SignedAttestation where
 instance SszHashTreeRoot SignedAttestation where
   hashTreeRoot = genericHashTreeRoot
 
--- | Unsigned aggregated attestation (leanSpec: BlockBody.attestations element).
+-- | Unsigned aggregated attestation (leanSpec: aggregation_bits first, then data).
 data AggregatedAttestation = AggregatedAttestation
-  { aaData            :: !AttestationData
-  , aaAggregationBits :: !AggregationBits
+  { aaAggregationBits :: !AggregationBits
+  , aaData            :: !AttestationData
   } deriving stock (Generic, Eq, Show)
 
 instance Ssz AggregatedAttestation where
@@ -200,6 +201,21 @@ instance SszEncode AggregatedAttestation where
 instance SszDecode AggregatedAttestation where
   sszDecode = genericSszDecode
 instance SszHashTreeRoot AggregatedAttestation where
+  hashTreeRoot = genericHashTreeRoot
+
+-- | Signed aggregated attestation (leanSpec: contains data + proof).
+data SignedAggregatedAttestation = SignedAggregatedAttestation
+  { saaData  :: !AggregatedAttestation
+  , saaProof :: !AggregatedSignatureProof
+  } deriving stock (Generic, Eq, Show)
+
+instance Ssz SignedAggregatedAttestation where
+  sszFixedSize = genericSszFixedSize @(Rep SignedAggregatedAttestation)
+instance SszEncode SignedAggregatedAttestation where
+  sszEncode = genericSszEncode
+instance SszDecode SignedAggregatedAttestation where
+  sszDecode = genericSszDecode
+instance SszHashTreeRoot SignedAggregatedAttestation where
   hashTreeRoot = genericHashTreeRoot
 
 -- | Aggregated signature proof (leanSpec: BlockSignatures.attestation_signatures element).

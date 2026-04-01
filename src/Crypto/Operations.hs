@@ -90,7 +90,7 @@ aggregateAttestations _prover attestations _committee _domain _subnetId = do
               bits = [ fromIntegral i `elem` valIndices | i <- [(0 :: Int) .. numVals - 1] ]
           case mkBitlist bits of
             Left _sszErr -> pure (Left (AggregationFailed "bitlist construction failed"))
-            Right bitlist -> pure (Right (AggregatedAttestation firstData bitlist))
+            Right bitlist -> pure (Right (AggregatedAttestation bitlist firstData))
 
 -- | Verify an aggregated attestation.
 verifyAggregatedAttestation :: VerifierContext -> AggregatedAttestation
