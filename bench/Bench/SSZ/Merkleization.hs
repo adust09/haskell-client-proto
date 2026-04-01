@@ -25,5 +25,6 @@ benchmarks = bgroup "SSZ.Merkleization"
       , bench "Checkpoint"           $ nf hashTreeRoot sampleCheckpoint
       , bench "BeaconState/4-vals"   $ nf hashTreeRoot genesisState4
       , bench "BeaconState/128-vals" $ nf hashTreeRoot genesisState128
+      , bench "BeaconState/4096-vals" $ nf hashTreeRoot genesisState4096
       ]
   ]

@@ -5,11 +5,13 @@ module Bench.Support.Generators
   ( -- * Benchmark fixtures
     genesisState4
   , genesisState128
+  , genesisState4096
   , sampleBlock4
   , sampleHeader
   , sampleCheckpoint
   , sampleSignedBlock4
   , sampleSignedBlock128
+  , sampleSignedBlock4096
   , chunk32
   , chunk32b
   , chunks4
@@ -230,6 +232,9 @@ genesisState4 = mkGenesisState 4
 genesisState128 :: BeaconState
 genesisState128 = mkGenesisState 128
 
+genesisState4096 :: BeaconState
+genesisState4096 = mkGenesisState 4096
+
 sampleBlock4 :: BeaconBlock
 sampleBlock4 = BeaconBlock
   { bbSlot          = 1
@@ -250,6 +255,9 @@ sampleSignedBlock4 = mkSignedBlock genesisState4 1
 
 sampleSignedBlock128 :: SignedBeaconBlock
 sampleSignedBlock128 = mkSignedBlock genesisState128 1
+
+sampleSignedBlock4096 :: SignedBeaconBlock
+sampleSignedBlock4096 = mkSignedBlock genesisState4096 1
 
 -- Raw byte chunks for merkleization benchmarks
 chunk32 :: ByteString

@@ -22,5 +22,7 @@ benchmarks = bgroup "Consensus.StateTransition"
           nf (\sb -> stateTransition genesisState4 sb False) sampleSignedBlock4
       , bench "empty block/128 validators" $
           nf (\sb -> stateTransition genesisState128 sb False) sampleSignedBlock128
+      , bench "empty block/4096 validators" $
+          nf (\sb -> stateTransition genesisState4096 sb False) sampleSignedBlock4096
       ]
   ]
