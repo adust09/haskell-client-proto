@@ -1,14 +1,13 @@
 module Test.Consensus.ForkChoice (tests) where
 
 import qualified Data.ByteString as BS
-import qualified Data.Map.Strict as Map
 import Data.Word (Word8)
 import Test.Tasty
 import Test.Tasty.HUnit
 
 import Consensus.Constants
 import Consensus.Types
-import Consensus.ForkChoice
+import Consensus.ForkChoice (ForkChoiceError (..), initStore, onBlock, onTick, getHead, getWeight, getAncestor, isDescendant)
 import SSZ.Bitlist (mkBitlist)
 import SSZ.Common (mkBytesN, zeroN)
 import SSZ.List (mkSszList)
@@ -108,34 +107,6 @@ tests = testGroup "Consensus.ForkChoice"
               store = initStore gs gb
           getHead store @?= toRoot gb
       ]
-  , testGroup "onAttestation"
-      [ testCase "updates latest message" $ do
-          let gs = mkGenesisState [mkValidatorWithPubkey 1 0]
-              gb = mkGenesisBlock
-              store = initStore gs gb
-              gbRoot = toRoot gb
-              headCp = Checkpoint gbRoot 0
-              ad = AttestationData 0 headCp zeroCheckpoint zeroCheckpoint
-              sa = SignedAttestation ad 0 zeroSig
-          case onAttestation store sa of
-            Right store1 -> do
-              let msg = Map.lookup 0 (stLatestMessages store1)
-              case msg of
-                Just lm -> do
-                  lmRoot lm @?= gbRoot
-                  lmSlot lm @?= 0
-                Nothing -> assertFailure "Expected latest message"
-            Left err -> assertFailure $ show err
-      , testCase "rejects future attestation" $ do
-          let gs = mkGenesisState [mkValidatorWithPubkey 1 0]
-              gb = mkGenesisBlock
-              store = initStore gs gb
-              ad = AttestationData 5 zeroCheckpoint zeroCheckpoint zeroCheckpoint
-              sa = SignedAttestation ad 0 zeroSig
-          case onAttestation store sa of
-            Left (AttestationSlotInFuture 5 0) -> pure ()
-            other -> assertFailure $ "Expected AttestationSlotInFuture, got: " ++ show other
-      ]
   , testGroup "getAncestor"
       [ testCase "finds self at same slot" $ do
           let gs = mkGenesisState [mkValidatorWithPubkey 1 0]
@@ -171,7 +142,7 @@ tests = testGroup "Consensus.ForkChoice"
               store = initStore gs gb
               orphanBlock = BeaconBlock 1 0 (mkRoot 99) zeroRoot mkEmptyBody
               signedOrphan = SignedBeaconBlock orphanBlock mkBlockSignatures
-          case onBlock (store { stCurrentSlot = 1 }) signedOrphan of
+          case onBlock (onTick store 4) signedOrphan of
             Left OrphanBlock -> pure ()
             other -> assertFailure $ "Expected OrphanBlock, got: " ++ show other
       , testCase "rejects future block" $ do

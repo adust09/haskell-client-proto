@@ -24,8 +24,8 @@ import Data.Map.Strict (Map)
 import Data.Sequence (Seq)
 import qualified Data.Sequence as Seq
 
-import Consensus.Constants (Slot, SubnetId)
-import Consensus.ForkChoice (onBlock, onAttestation)
+import Consensus.Constants (Slot, SubnetId, slotDuration)
+import Consensus.ForkChoice (onBlock, onTick)
 import Consensus.Types
 import Crypto.Hashing (sha256)
 import Crypto.LeanMultisig (VerifierContext)
@@ -92,30 +92,34 @@ evictOldest cache =
 
 -- | Validate a gossiped block against the current store.
 validateBlock :: Store -> SignedBeaconBlock -> Slot -> ValidationResult
-validateBlock store sbb currentSlot =
+validateBlock store sbb curSlot =
   let block = sbbBlock sbb
       blockSlot = bbSlot block
       parentRoot = bbParentRoot block
-  in  if blockSlot > currentSlot + 1
+  in  if blockSlot > curSlot + 1
         then Reject
         else if not (Map.member parentRoot (stBlocks store))
           then Ignore
-          else case onBlock (store { stCurrentSlot = max currentSlot (stCurrentSlot store) }) sbb of
-            Left _  -> Reject
-            Right _ -> Accept
+          else let slotSec = fromIntegral (slotDuration `div` 1_000_000)
+                   genesis = cfgGenesisTime (stConfig store)
+                   slotTime = genesis + curSlot * slotSec
+                   store' = onTick store (max slotTime (stTime store))
+               in  case onBlock store' sbb of
+                     Left _  -> Reject
+                     Right _ -> Accept
 
 -- | Validate a gossiped individual attestation.
+-- In leanSpec, individual attestations are not processed by the store.
+-- We validate slot range only.
 validateAttestation :: Store -> SignedAttestation -> Slot -> ValidationResult
-validateAttestation store sa currentSlot =
+validateAttestation _store sa curSlot =
   let ad = saData sa
       attSlot = adSlot ad
-  in  if attSlot > currentSlot
+  in  if attSlot > curSlot
         then Reject
-        else if attSlot + 4 < currentSlot
+        else if attSlot + 4 < curSlot
           then Ignore
-          else case onAttestation (store { stCurrentSlot = max currentSlot (stCurrentSlot store) }) sa of
-            Left _  -> Reject
-            Right _ -> Accept
+          else Accept
 
 -- ---------------------------------------------------------------------------
 -- Handler
@@ -164,29 +168,17 @@ handleBlockMessage env raw = do
         case validateBlock store sbb slot of
           Accept -> atomically $ do
             s <- readTVar (mhStore env)
-            case onBlock (s { stCurrentSlot = slot }) sbb of
-              Right s' -> writeTVar (mhStore env) s'
-              Left _   -> pure ()
+            let slotSec = fromIntegral (slotDuration `div` 1_000_000)
+                genesis = cfgGenesisTime (stConfig s)
+                slotTime = genesis + slot * slotSec
+                s' = onTick s (max slotTime (stTime s))
+            case onBlock s' sbb of
+              Right s'' -> writeTVar (mhStore env) s''
+              Left _    -> pure ()
           _ -> pure ()
 
 handleAttestationMessage :: MessageHandlerEnv -> ByteString -> IO ()
-handleAttestationMessage env raw = do
-  isDup <- atomically $ do
-    cache <- readTVar (mhSeenCache env)
-    let (seen, cache') = markSeen raw cache
-    writeTVar (mhSeenCache env) cache'
-    pure seen
-  if isDup
-    then pure ()
-    else case decodeWire raw of
-      Left _ -> pure ()
-      Right sa -> do
-        store <- readTVarIO (mhStore env)
-        slot <- readTVarIO (mhCurrentSlot env)
-        case validateAttestation store sa slot of
-          Accept -> atomically $ do
-            s <- readTVar (mhStore env)
-            case onAttestation (s { stCurrentSlot = slot }) sa of
-              Right s' -> writeTVar (mhStore env) s'
-              Left _   -> pure ()
-          _ -> pure ()
+handleAttestationMessage _env _raw =
+  -- In leanSpec, individual attestations are not processed by the store.
+  -- Attestation data is extracted from blocks during onBlock.
+  pure ()
