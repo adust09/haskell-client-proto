@@ -26,7 +26,7 @@ import Test.Support.MockNetwork
 tests :: TestTree
 tests = testGroup "Integration.Devnet"
   [ testCase "genesis sync: node syncs blocks from peers after genesis init" $ do
-      let vals = [mkTestValidator 1 32000000]
+      let vals = [mkTestValidator 1 0]
           gs = mkTestGenesisState vals
           genesisBlock = mkTestGenesisBlock
 
@@ -49,7 +49,7 @@ tests = testGroup "Integration.Devnet"
         11 (Map.size (stBlocks store))
 
   , testCase "block following: node receives and validates new blocks via gossip" $ do
-      let vals = [mkTestValidator 1 32000000]
+      let vals = [mkTestValidator 1 0]
           gs = mkTestGenesisState vals
           genesisBlock = mkTestGenesisBlock
 
@@ -122,7 +122,7 @@ tests = testGroup "Integration.Devnet"
         stopNode actors
 
   , testCase "sync then gossip: sync history then follow live blocks" $ do
-      let vals = [mkTestValidator 1 32000000]
+      let vals = [mkTestValidator 1 0]
           gs = mkTestGenesisState vals
           genesisBlock = mkTestGenesisBlock
 
@@ -163,7 +163,7 @@ tests = testGroup "Integration.Devnet"
         7 (Map.size (stBlocks storeFinal))
 
   , testCase "multi-node consensus: two nodes agree on chain head" $ do
-      let vals = [mkTestValidator 1 32000000]
+      let vals = [mkTestValidator 1 0]
           gs = mkTestGenesisState vals
           genesisBlock = mkTestGenesisBlock
 

@@ -52,10 +52,9 @@ tests = testGroup "Consensus.Types"
           sszIsFixedSize @Validator @?= True
       , testCase "AggregatedSignatureProof is variable-size" $
           sszIsFixedSize @AggregatedSignatureProof @?= False
-      , testCase "Validator size uses xmssPubkeySize" $ do
-          -- vPubkey(32) + vEffectiveBalance(8) + vSlashed(1) +
-          -- vActivationSlot(8) + vExitSlot(8) + vWithdrawableSlot(8) = 65
-          let expectedSize = fromIntegral xmssPubkeySize + 8 + 1 + 8 + 8 + 8
+      , testCase "Validator size is 112 bytes (52+52+8)" $ do
+          -- vAttestationPubkey(52) + vProposalPubkey(52) + vIndex(8) = 112
+          let expectedSize = fromIntegral xmssPubkeySize + fromIntegral xmssPubkeySize + 8
           sszFixedSize @Validator @?= Just expectedSize
       ]
   , testGroup "roundtrip"
@@ -78,7 +77,7 @@ tests = testGroup "Consensus.Types"
           sszDecode (sszEncode bbh) @?= Right bbh
       , testCase "Validator" $ do
           let pk = unsafeRight $ mkXmssPubkey (BS.replicate xmssPubkeySize 0x01)
-              v = Validator pk 32000000 False 0 maxBound maxBound
+              v = Validator pk pk 0
           sszDecode (sszEncode v) @?= Right v
       , testCase "AggregatedSignatureProof (empty)" $ do
           let asp = AggregatedSignatureProof (LeanMultisigProof "")

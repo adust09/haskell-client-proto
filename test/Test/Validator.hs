@@ -39,10 +39,10 @@ tests = testGroup "Validator"
 -- | Test that getProposerIndex correctly identifies the proposer.
 testProposalDutyDetection :: IO ()
 testProposalDutyDetection = do
-  let vals = [ mkTestValidator 0 32000000000
-             , mkTestValidator 1 32000000000
-             , mkTestValidator 2 32000000000
-             , mkTestValidator 3 32000000000
+  let vals = [ mkTestValidator 0 0
+             , mkTestValidator 1 1
+             , mkTestValidator 2 2
+             , mkTestValidator 3 3
              ]
       gs = mkTestGenesisState vals
 

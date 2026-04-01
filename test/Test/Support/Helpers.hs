@@ -65,20 +65,20 @@ mkBlockSignatures =
   let emptyAttSigs = forceRight $ mkSszList @MAX_ATTESTATION_SIGNATURES []
   in  BlockSignatures emptyAttSigs zeroSig
 
-mkTestValidator :: Word8 -> Gwei -> Validator
-mkTestValidator w balance =
+mkTestValidator :: Word8 -> ValidatorIndex -> Validator
+mkTestValidator w idx =
   let pk = case mkXmssPubkey (BS.replicate xmssPubkeySize w) of
              Right p -> p
              Left _  -> error "mkTestValidator"
-  in  Validator pk balance False 0 maxBound maxBound
+  in  Validator pk pk idx
 
 -- | Create a validator with a real Ed25519-backed key pair for signing tests.
 -- Returns (PrivateKey, Validator).
-mkTestValidatorWithKey :: Int -> Gwei -> (PrivateKey, Validator)
-mkTestValidatorWithKey idx balance =
+mkTestValidatorWithKey :: Int -> (PrivateKey, Validator)
+mkTestValidatorWithKey idx =
   let seed = BS8.pack ("test-validator-seed-" <> show idx)
       (privKey, pubKey) = forceRight $ generateKeyPair 10 seed
-  in  (privKey, Validator pubKey balance False 0 maxBound maxBound)
+  in  (privKey, Validator pubKey pubKey (fromIntegral idx))
 
 -- | Create a properly signed attestation using a real private key.
 mkSignedTestAttestation :: PrivateKey -> ValidatorIndex -> Slot -> Root
@@ -129,8 +129,8 @@ mkTestGenesis =
                   Left _  -> error "mkTestGenesis: forkVersion"
   in  GenesisConfig
     { gcGenesisTime = UTCTime (fromGregorian 2026 1 1) 0
-    , gcValidators  = [ GenesisValidator pk1 32000000000
-                      , GenesisValidator pk2 32000000000
+    , gcValidators  = [ GenesisValidator pk1 pk1
+                      , GenesisValidator pk2 pk2
                       ]
     , gcForkVersion = forkVer
     , gcChainId     = 1337

@@ -29,7 +29,7 @@ unsafeRight (Left e)  = error ("unexpected Left: " <> show e)
 tests :: TestTree
 tests = testGroup "Network.Integration"
   [ testCase "two-node block gossip via MockNetwork" $ do
-      let vals = [mkTestValidator 1 32000000]
+      let vals = [mkTestValidator 1 0]
           gs = mkTestGenesisState vals
           genesisBlock = mkTestGenesisBlock
 
@@ -65,7 +65,7 @@ tests = testGroup "Network.Integration"
         (Map.size (stBlocks store2) >= 2)
 
   , testCase "attestation flow: validator -> message handler" $ do
-      let vals = [mkTestValidator 1 32000000]
+      let vals = [mkTestValidator 1 0]
           gs = mkTestGenesisState vals
           genesisBlock = mkTestGenesisBlock
           genesisRoot = toRoot genesisBlock
@@ -95,7 +95,7 @@ tests = testGroup "Network.Integration"
         (Map.member 0 (stLatestMessages store))
 
   , testCase "aggregation flow: pool -> aggregate -> publish to TopicAggregation" $ do
-      let keyVals = [ mkTestValidatorWithKey i 32000000 | i <- [0..7] ]
+      let keyVals = [ mkTestValidatorWithKey i | i <- [0..7] ]
           privKeys = map fst keyVals
           vals = map snd keyVals
           gs = mkTestGenesisState vals
@@ -110,7 +110,7 @@ tests = testGroup "Network.Integration"
           genCp = zeroCheckpoint
           domain = cpRoot genCp
 
-      let pubkeys = [ vPubkey v | v <- unSszList (bsValidators st1) ]
+      let pubkeys = [ vAttestationPubkey v | v <- unSszList (bsValidators st1) ]
           target1 = Checkpoint block1Root 1
           subnetVis = [ vi | vi <- [0 .. 7 :: Int], vi `mod` 4 == 0 ]
           atts = [ mkSignedTestAttestation (privKeys !! i) (fromIntegral i)
@@ -147,7 +147,7 @@ tests = testGroup "Network.Integration"
             (Map.member TopicAggregation published)
 
   , testCase "sync then live gossip: sync 5 blocks then receive block 6 via gossip" $ do
-      let vals = [mkTestValidator 1 32000000]
+      let vals = [mkTestValidator 1 0]
           gs = mkTestGenesisState vals
           genesisBlock = mkTestGenesisBlock
 

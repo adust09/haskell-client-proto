@@ -17,7 +17,7 @@ import Test.Support.MockNetwork
 tests :: TestTree
 tests = testGroup "Network.Sync"
   [ testCase "onBlock accepts blocks built by stateTransition" $ do
-      let vals = [mkTestValidator 1 32000000]
+      let vals = [mkTestValidator 1 0]
           gs = mkTestGenesisState vals
           genesisBlock = mkTestGenesisBlock
           store0 = initStore gs genesisBlock
@@ -30,7 +30,7 @@ tests = testGroup "Network.Sync"
           Map.size (stBlocks store2) @?= 2
 
   , testCase "syncBatch applies one block" $ do
-      let vals = [mkTestValidator 1 32000000]
+      let vals = [mkTestValidator 1 0]
           gs = mkTestGenesisState vals
           genesisBlock = mkTestGenesisBlock
           sbb1 = mkTestSignedBlock gs 1
@@ -48,7 +48,7 @@ tests = testGroup "Network.Sync"
         Right slot -> slot @?= 1
 
   , testCase "sync from genesis to slot 3" $ do
-      let vals = [mkTestValidator 1 32000000]
+      let vals = [mkTestValidator 1 0]
           gs = mkTestGenesisState vals
           genesisBlock = mkTestGenesisBlock
 
@@ -84,7 +84,7 @@ tests = testGroup "Network.Sync"
                   stCurrentSlot store @?= 3
 
   , testCase "sync with no blocks needed returns Synced" $ do
-      let vals = [mkTestValidator 1 32000000]
+      let vals = [mkTestValidator 1 0]
           gs = mkTestGenesisState vals
           genesisBlock = mkTestGenesisBlock
 

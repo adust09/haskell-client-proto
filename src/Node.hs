@@ -168,7 +168,7 @@ findValidatorIndex :: GenesisConfig -> XmssPubkey -> ValidatorIndex
 findValidatorIndex gc pubKey =
   case [ fromIntegral i :: ValidatorIndex
        | (i, gv) <- zip [(0 :: Int)..] (gcValidators gc)
-       , gvPubkey gv == pubKey
+       , gvAttestationPubkey gv == pubKey || gvProposalPubkey gv == pubKey
        ] of
     (idx : _) -> idx
     []        -> 0
