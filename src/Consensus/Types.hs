@@ -126,7 +126,7 @@ type AggregationBits = Bitlist VALIDATOR_REGISTRY_LIMIT
 -- ---------------------------------------------------------------------------
 
 data Config = Config
-  { cfgNumValidators :: !Word64
+  { cfgGenesisTime :: !Word64
   } deriving stock (Generic, Eq, Show)
 
 instance Ssz Config where

@@ -135,7 +135,7 @@ processAttestation bs att = do
     else Right ()
 
   let targetRoot = cpRoot (adTargetCheckpoint ad)
-      numValidators = fromIntegral (cfgNumValidators (bsConfig bs)) :: Int
+      numValidators = length (unSszList (bsValidators bs))
       bits = aaAggregationBits att
       numBits = bitlistLen bits
 
@@ -198,7 +198,7 @@ processAttestations = foldl' step . Right
 processJustificationFinalization :: BeaconState -> BeaconState
 processJustificationFinalization bs =
   let validators = unSszList (bsValidators bs)
-      numValidators = fromIntegral (cfgNumValidators (bsConfig bs)) :: Int
+      numValidators = length validators
       totalActive = sum
         [ vEffectiveBalance v
         | v <- validators

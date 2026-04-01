@@ -17,6 +17,7 @@ import qualified Data.ByteString.Base16 as Base16
 import qualified Data.Text as T
 import Data.Text.Encoding (encodeUtf8)
 import Data.Time.Clock (UTCTime)
+import Data.Time.Clock.POSIX (utcTimeToPOSIXSeconds)
 import Data.Time.Format (defaultTimeLocale, parseTimeM)
 import Data.Word (Word64)
 
@@ -89,8 +90,8 @@ parseHexField fieldName hexStr = do
 initializeGenesisState :: GenesisConfig -> BeaconState
 initializeGenesisState gc =
   let validators = map toValidator (gcValidators gc)
-      numVals = fromIntegral (length validators) :: Word64
-      config = Config { cfgNumValidators = numVals }
+      genesisTimeUnix = floor (utcTimeToPOSIXSeconds (gcGenesisTime gc)) :: Word64
+      config = Config { cfgGenesisTime = genesisTimeUnix }
       valList    = forceRight $ mkSszList @VALIDATORS_LIMIT validators
       emptyHashes = forceRight $ mkSszList @HISTORICAL_BLOCK_HASHES_LIMIT []
       emptyJSlots = forceRight $ mkBitlist @JUSTIFIED_SLOTS_LIMIT []
