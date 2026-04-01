@@ -157,10 +157,10 @@ instance SszHashTreeRoot Checkpoint where
   hashTreeRoot = genericHashTreeRoot
 
 data AttestationData = AttestationData
-  { adSlot             :: !Slot
-  , adHeadRoot         :: !Root
-  , adSourceCheckpoint :: !Checkpoint
-  , adTargetCheckpoint :: !Checkpoint
+  { adSlot   :: !Slot
+  , adHead   :: !Checkpoint
+  , adTarget :: !Checkpoint
+  , adSource :: !Checkpoint
   } deriving stock (Generic, Eq, Ord, Show)
 
 instance Ssz AttestationData where

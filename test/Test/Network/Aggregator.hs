@@ -14,7 +14,8 @@ tests = testGroup "Network.Aggregator"
   [ testCase "addAttestation groups by AttestationData" $ do
       pool <- newAttestationPool
       let genesisRoot = toRoot mkTestGenesisBlock
-          ad1 = AttestationData 1 genesisRoot zeroCheckpoint zeroCheckpoint
+          headCp = Checkpoint genesisRoot 1
+          ad1 = AttestationData 1 headCp zeroCheckpoint zeroCheckpoint
           att1 = mkTestAttestation 0 1 genesisRoot zeroCheckpoint zeroCheckpoint
           att2 = mkTestAttestation 1 1 genesisRoot zeroCheckpoint zeroCheckpoint
       atomically $ do

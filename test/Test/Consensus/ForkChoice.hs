@@ -114,7 +114,8 @@ tests = testGroup "Consensus.ForkChoice"
               gb = mkGenesisBlock
               store = initStore gs gb
               gbRoot = toRoot gb
-              ad = AttestationData 0 gbRoot zeroCheckpoint zeroCheckpoint
+              headCp = Checkpoint gbRoot 0
+              ad = AttestationData 0 headCp zeroCheckpoint zeroCheckpoint
               sa = SignedAttestation ad 0 zeroSig
           case onAttestation store sa of
             Right store1 -> do
@@ -129,7 +130,7 @@ tests = testGroup "Consensus.ForkChoice"
           let gs = mkGenesisState [mkValidatorWithPubkey 1 0]
               gb = mkGenesisBlock
               store = initStore gs gb
-              ad = AttestationData 5 zeroRoot zeroCheckpoint zeroCheckpoint
+              ad = AttestationData 5 zeroCheckpoint zeroCheckpoint zeroCheckpoint
               sa = SignedAttestation ad 0 zeroSig
           case onAttestation store sa of
             Left (AttestationSlotInFuture 5 0) -> pure ()

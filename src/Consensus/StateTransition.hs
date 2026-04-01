@@ -128,7 +128,7 @@ processAttestation bs att = do
     then Left (InvalidAttestationSlot attSlot (bsSlot bs))
     else Right ()
 
-  let targetRoot = cpRoot (adTargetCheckpoint ad)
+  let targetRoot = cpRoot (adTarget ad)
       numValidators = length (unSszList (bsValidators bs))
       bits = aaAggregationBits att
       numBits = bitlistLen bits

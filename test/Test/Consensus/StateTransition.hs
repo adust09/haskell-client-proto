@@ -213,7 +213,7 @@ tests = testGroup "Consensus.StateTransition"
               bs = (mkGenesisState vals) { bsSlot = 2 }
               bits = forceRight $ mkBitlist @VALIDATOR_REGISTRY_LIMIT [True]
               att = AggregatedAttestation
-                { aaData = AttestationData 1 zeroRoot zeroCheckpoint zeroCheckpoint
+                { aaData = AttestationData 1 zeroCheckpoint zeroCheckpoint zeroCheckpoint
                 , aaAggregationBits = bits
                 }
           case processAttestation bs att of
@@ -224,7 +224,7 @@ tests = testGroup "Consensus.StateTransition"
               bs = (mkGenesisState vals) { bsSlot = 1 }
               bits = forceRight $ mkBitlist @VALIDATOR_REGISTRY_LIMIT [True]
               att = AggregatedAttestation
-                { aaData = AttestationData 5 zeroRoot zeroCheckpoint zeroCheckpoint
+                { aaData = AttestationData 5 zeroCheckpoint zeroCheckpoint zeroCheckpoint
                 , aaAggregationBits = bits
                 }
           case processAttestation bs att of

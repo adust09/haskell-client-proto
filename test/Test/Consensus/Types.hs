@@ -24,7 +24,7 @@ zeroCheckpoint = Checkpoint zeroRoot 0
 
 -- | Create a zero AttestationData.
 zeroAttData :: AttestationData
-zeroAttData = AttestationData 0 zeroRoot zeroCheckpoint zeroCheckpoint
+zeroAttData = AttestationData 0 zeroCheckpoint zeroCheckpoint zeroCheckpoint
 
 -- | Create a zero BeaconBlockHeader.
 zeroBlockHeader :: BeaconBlockHeader
@@ -36,8 +36,8 @@ tests = testGroup "Consensus.Types"
       [ testCase "Checkpoint is fixed-size, 40 bytes" $ do
           sszFixedSize @Checkpoint @?= Just 40
           sszIsFixedSize @Checkpoint @?= True
-      , testCase "AttestationData is fixed-size, 120 bytes" $ do
-          sszFixedSize @AttestationData @?= Just 120
+      , testCase "AttestationData is fixed-size, 128 bytes" $ do
+          sszFixedSize @AttestationData @?= Just 128
           sszIsFixedSize @AttestationData @?= True
       , testCase "BeaconBlockHeader is fixed-size, 112 bytes" $ do
           sszFixedSize @BeaconBlockHeader @?= Just 112
@@ -65,7 +65,7 @@ tests = testGroup "Consensus.Types"
       , testCase "AttestationData" $ do
           let root = unsafeRight $ mkBytesN @32 (BS.pack [1..32])
               cp = Checkpoint root 10
-              ad = AttestationData 5 root cp cp
+              ad = AttestationData 5 cp cp cp
           sszDecode (sszEncode ad) @?= Right ad
       , testCase "SignedAttestation" $ do
           let sig = unsafeRight $ mkXmssSignature (BS.replicate xmssSignatureSize 0xAB)
