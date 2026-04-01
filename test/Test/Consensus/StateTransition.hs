@@ -32,7 +32,7 @@ zeroPubkey = case mkXmssPubkey (BS.replicate xmssPubkeySize 0) of
   Left _   -> error "zeroPubkey failed"
 
 zeroCheckpoint :: Checkpoint
-zeroCheckpoint = Checkpoint 0 zeroRoot
+zeroCheckpoint = Checkpoint zeroRoot 0
 
 zeroSig :: XmssSignature
 zeroSig = case mkXmssSignature (BS.replicate xmssSignatureSize 0) of

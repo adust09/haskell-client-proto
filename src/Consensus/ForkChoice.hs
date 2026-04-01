@@ -50,7 +50,7 @@ data ForkChoiceError
 initStore :: BeaconState -> BeaconBlock -> Store
 initStore genesisState genesisBlock =
   let blockRoot = toRoot genesisBlock
-      checkpoint = Checkpoint 0 blockRoot
+      checkpoint = Checkpoint blockRoot 0
   in  Store
     { stJustifiedCheckpoint = checkpoint
     , stFinalizedCheckpoint = checkpoint

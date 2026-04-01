@@ -20,7 +20,7 @@ zeroRoot = zeroN @32
 
 -- | Create a zero Checkpoint.
 zeroCheckpoint :: Checkpoint
-zeroCheckpoint = Checkpoint 0 zeroRoot
+zeroCheckpoint = Checkpoint zeroRoot 0
 
 -- | Create a zero AttestationData.
 zeroAttData :: AttestationData
@@ -61,11 +61,11 @@ tests = testGroup "Consensus.Types"
   , testGroup "roundtrip"
       [ testCase "Checkpoint" $ do
           let root = unsafeRight $ mkBytesN @32 (BS.pack [1..32])
-              cp = Checkpoint 42 root
+              cp = Checkpoint root 42
           sszDecode (sszEncode cp) @?= Right cp
       , testCase "AttestationData" $ do
           let root = unsafeRight $ mkBytesN @32 (BS.pack [1..32])
-              cp = Checkpoint 10 root
+              cp = Checkpoint root 10
               ad = AttestationData 5 root cp cp
           sszDecode (sszEncode ad) @?= Right ad
       , testCase "SignedAttestation" $ do
@@ -89,10 +89,10 @@ tests = testGroup "Consensus.Types"
       ]
   , testGroup "hashTreeRoot"
       [ testCase "Checkpoint hashTreeRoot" $ do
-          let cp = Checkpoint 0 zeroRoot
-              slotRoot = hashTreeRoot (0 :: Word64)
+          let cp = Checkpoint zeroRoot 0
               rootRoot = hashTreeRoot zeroRoot
-              expected = merkleize [slotRoot, rootRoot] 2
+              slotRoot = hashTreeRoot (0 :: Word64)
+              expected = merkleize [rootRoot, slotRoot] 2
           hashTreeRoot cp @?= expected
       , testCase "BeaconBlockHeader hashTreeRoot" $ do
           let bbh = zeroBlockHeader

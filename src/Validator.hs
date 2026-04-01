@@ -96,7 +96,7 @@ createAttestation :: ValidatorEnv -> BeaconState -> Store -> Slot -> IO ()
 createAttestation env state store slot = do
   let headRoot = getHead store
       source = bsLatestJustified state
-      target = Checkpoint slot headRoot
+      target = Checkpoint headRoot slot
 
       attData = AttestationData
         { adSlot             = slot
