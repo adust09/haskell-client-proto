@@ -6,7 +6,7 @@ import Data.Word (Word64)
 import Test.Tasty
 import Test.Tasty.HUnit
 
-import Consensus.ForkChoice (initStore, onBlock)
+import Consensus.ForkChoice (initStore, onBlock, onTick)
 import Consensus.StateTransition (stateTransition)
 import Consensus.Types
 import Network.P2P.Wire (encodeWire)
@@ -22,11 +22,11 @@ tests = testGroup "Network.Sync"
           genesisBlock = mkTestGenesisBlock
           store0 = initStore gs genesisBlock
           sbb1 = mkTestSignedBlock gs 1
-          store1 = store0 { stCurrentSlot = 1 }
+          store1 = onTick store0 4
       case onBlock store1 sbb1 of
         Left err -> assertFailure $ "onBlock failed: " <> show err
         Right store2 -> do
-          stCurrentSlot store2 @?= 1
+          currentSlot store2 @?= 1
           Map.size (stBlocks store2) @?= 2
 
   , testCase "syncBatch applies one block" $ do
@@ -81,7 +81,7 @@ tests = testGroup "Network.Sync"
                   result @?= Synced
 
                   store <- readTVarIO storeVar
-                  stCurrentSlot store @?= 3
+                  currentSlot store @?= 3
 
   , testCase "sync with no blocks needed returns Synced" $ do
       let vals = [mkTestValidator 1 0]

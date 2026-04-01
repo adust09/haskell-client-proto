@@ -44,7 +44,7 @@ tests = testGroup "Integration.Devnet"
 
       assertEqual "sync should complete successfully" Synced syncResult
       store <- readTVarIO storeVar
-      assertEqual "store should be at slot 10" 10 (stCurrentSlot store)
+      assertEqual "store should be at slot 10" 10 (currentSlot store)
       assertEqual "store should have 11 blocks (genesis + 10)"
         11 (Map.size (stBlocks store))
 
@@ -200,5 +200,5 @@ tests = testGroup "Integration.Devnet"
       assertEqual "node 1 should have 4 blocks" 4 (Map.size (stBlocks store1))
       assertEqual "node 2 should have 4 blocks" 4 (Map.size (stBlocks store2))
       assertEqual "both nodes should agree on current slot"
-        (stCurrentSlot store1) (stCurrentSlot store2)
+        (currentSlot store1) (currentSlot store2)
   ]

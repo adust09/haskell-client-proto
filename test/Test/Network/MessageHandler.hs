@@ -5,7 +5,7 @@ import Test.Tasty.HUnit
 
 import qualified Data.ByteString as BS
 
-import Consensus.ForkChoice (initStore)
+import Consensus.ForkChoice (initStore, onTick)
 import Consensus.Types
 import Network.MessageHandler
 import SSZ.Common (mkBytesN)
@@ -64,7 +64,7 @@ blockValidationTests = testGroup "Block validation"
           gs = mkTestGenesisState vals
           store = initStore gs mkTestGenesisBlock
           sbb = mkTestSignedBlock gs 1
-          store1 = store { stCurrentSlot = 1 }
+          store1 = onTick store 4
       validateBlock store1 sbb 1 @?= Accept
 
   , testCase "future block is rejected" $ do
@@ -99,7 +99,7 @@ attestationValidationTests = testGroup "Attestation validation"
           store = initStore gs genesisBlock
           genesisRoot = toRoot genesisBlock
           att = mkTestAttestation 0 0 genesisRoot zeroCheckpoint zeroCheckpoint
-      validateAttestation (store { stCurrentSlot = 1 }) att 1 @?= Accept
+      validateAttestation (onTick store 4) att 1 @?= Accept
 
   , testCase "future attestation is rejected" $ do
       let vals = [mkTestValidator 1 0]
@@ -113,5 +113,5 @@ attestationValidationTests = testGroup "Attestation validation"
           gs = mkTestGenesisState vals
           store = initStore gs mkTestGenesisBlock
           att = mkTestAttestation 0 0 zeroRoot zeroCheckpoint zeroCheckpoint
-      validateAttestation (store { stCurrentSlot = 10 }) att 10 @?= Ignore
+      validateAttestation (onTick store 40) att 10 @?= Ignore
   ]

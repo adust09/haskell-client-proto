@@ -12,9 +12,9 @@ import Control.Concurrent.STM
 import Data.ByteString (ByteString)
 import Data.Word (Word64)
 
-import Consensus.Constants (Slot)
-import Consensus.ForkChoice (onBlock)
-import Consensus.Types (Store (..), SignedBeaconBlock (..), BeaconBlock (..))
+import Consensus.Constants (Slot, slotDuration)
+import Consensus.ForkChoice (onBlock, onTick)
+import Consensus.Types (Store (..), Config (..), SignedBeaconBlock (..), BeaconBlock (..), currentSlot)
 import Network.P2P.Types (P2PHandle (..))
 import Network.P2P.Wire (decodeWire)
 
@@ -45,7 +45,7 @@ data SyncEnv = SyncEnv
 runSync :: SyncEnv -> Slot -> IO SyncStatus
 runSync env targetSlot = do
   store <- readTVarIO (seStore env)
-  let headSlot = stCurrentSlot store
+  let headSlot = currentSlot store
   if headSlot >= targetSlot
     then do
       atomically $ writeTVar (seStatus env) Synced
@@ -55,13 +55,13 @@ runSync env targetSlot = do
       syncLoop env headSlot targetSlot
 
 syncLoop :: SyncEnv -> Slot -> Slot -> IO SyncStatus
-syncLoop env currentSlot targetSlot
-  | currentSlot >= targetSlot = do
+syncLoop env curSlot targetSlot
+  | curSlot >= targetSlot = do
       atomically $ writeTVar (seStatus env) Synced
       pure Synced
   | otherwise = do
       let batchSize = seBatchSize env
-          startSlot = currentSlot + 1
+          startSlot = curSlot + 1
       result <- syncBatch env startSlot batchSize
       case result of
         Left err -> do
@@ -81,7 +81,7 @@ syncBatch env startSlot count = do
 applyBlocks :: SyncEnv -> [ByteString] -> Slot -> IO (Either String Slot)
 applyBlocks env [] _lastSlot = do
   store <- readTVarIO (seStore env)
-  pure (Right (stCurrentSlot store))
+  pure (Right (currentSlot store))
 applyBlocks env (raw:rest) _fallbackSlot =
   case decodeWire raw of
     Left err -> pure (Left ("SSZ decode failed: " <> show err))
@@ -89,8 +89,11 @@ applyBlocks env (raw:rest) _fallbackSlot =
       let blockSlot = bbSlot (sbbBlock sbb)
       result <- atomically $ do
         store <- readTVar (seStore env)
-        -- Advance stCurrentSlot so onBlock doesn't reject the block as "future"
-        let store' = store { stCurrentSlot = max blockSlot (stCurrentSlot store) }
+        -- Advance time so onBlock doesn't reject the block as "future"
+        let slotSec = fromIntegral (slotDuration `div` 1_000_000)
+            genesis = cfgGenesisTime (stConfig store)
+            blockTime = genesis + blockSlot * slotSec
+            store' = onTick store (max blockTime (stTime store))
         case onBlock store' sbb of
           Left err -> pure (Left (show err))
           Right store'' -> do
@@ -98,4 +101,4 @@ applyBlocks env (raw:rest) _fallbackSlot =
             pure (Right store'')
       case result of
         Left err -> pure (Left ("block application failed: " <> err))
-        Right store' -> applyBlocks env rest (stCurrentSlot store')
+        Right store' -> applyBlocks env rest (currentSlot store')

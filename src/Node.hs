@@ -17,7 +17,7 @@ import Actor (Actor (..), spawnActor, send, waitActor)
 import Config (NodeConfig (..))
 import Consensus.Types (XmssPubkey)
 import Consensus.Constants (Root, Slot, ValidatorIndex)
-import Consensus.ForkChoice (onBlock, onAttestation)
+import Consensus.ForkChoice (onBlock)
 import Consensus.StateTransition (processSlots)
 import Crypto.KeyManager (loadManagedKey, managedPublicKey)
 import Crypto.SigningRoot (computeDomain)
@@ -134,11 +134,9 @@ blockchainLoop storage queue = go
               atomically $ writeForkChoiceStore storage store'
           go
 
-        BcNewAttestation att -> do
-          store <- atomically $ readForkChoiceStore storage
-          case onAttestation store att of
-            Left _err    -> pure ()
-            Right store' -> atomically $ writeForkChoiceStore storage store'
+        BcNewAttestation _att -> do
+          -- In leanSpec, individual attestations are not processed by the store.
+          -- Attestation data is extracted from blocks during onBlock.
           go
 
         BcNewAggregation _agg -> do

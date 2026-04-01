@@ -28,7 +28,7 @@ module Consensus.Types
   , BeaconState (..)
     -- * Fork choice (non-SSZ)
   , Store (..)
-  , LatestMessage (..)
+  , currentSlot
   ) where
 
 import Data.ByteString (ByteString)
@@ -353,15 +353,23 @@ instance SszHashTreeRoot BeaconState where
 -- ---------------------------------------------------------------------------
 
 data Store = Store
-  { stJustifiedCheckpoint :: !Checkpoint
-  , stFinalizedCheckpoint :: !Checkpoint
-  , stBlocks              :: !(Map Root BeaconBlock)
-  , stBlockStates         :: !(Map Root BeaconState)
-  , stLatestMessages      :: !(Map ValidatorIndex LatestMessage)
-  , stCurrentSlot         :: !Slot
+  { stTime                  :: !Word64
+  , stConfig                :: !Config
+  , stHead                  :: !Checkpoint
+  , stSafeTarget            :: !Checkpoint
+  , stJustifiedCheckpoint   :: !Checkpoint
+  , stFinalizedCheckpoint   :: !Checkpoint
+  , stValidatorId           :: !ValidatorIndex
+  , stAttestationSignatures :: !(Map Slot AggregatedSignatureProof)
+  , stBlocks                :: !(Map Root BeaconBlock)
+  , stBlockStates           :: !(Map Root BeaconState)
   } deriving stock (Eq, Show)
 
-data LatestMessage = LatestMessage
-  { lmSlot :: !Slot
-  , lmRoot :: !Root
-  } deriving stock (Eq, Show)
+-- | Derive current slot from store time and genesis time.
+currentSlot :: Store -> Slot
+currentSlot store =
+  let genesis = cfgGenesisTime (stConfig store)
+      slotSec = slotDuration `div` 1_000_000
+  in  if stTime store >= genesis
+        then (stTime store - genesis) `div` fromIntegral slotSec
+        else 0
