@@ -31,9 +31,9 @@ testDomain = zeroN @32
 testAttData :: AttestationData
 testAttData = AttestationData
   { adSlot = 42
-  , adHeadRoot = zeroN @32
-  , adSourceCheckpoint = Checkpoint (zeroN @32) 0
-  , adTargetCheckpoint = Checkpoint (zeroN @32) 1
+  , adHead   = Checkpoint (zeroN @32) 0
+  , adTarget = Checkpoint (zeroN @32) 1
+  , adSource = Checkpoint (zeroN @32) 0
   }
 
 -- | Helper: create a test beacon block.

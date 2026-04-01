@@ -84,7 +84,8 @@ mkTestValidatorWithKey idx =
 mkSignedTestAttestation :: PrivateKey -> ValidatorIndex -> Slot -> Root
                         -> Checkpoint -> Checkpoint -> Domain -> SignedAttestation
 mkSignedTestAttestation privKey vi slot headRoot source target domain =
-  let attData = AttestationData slot headRoot source target
+  let headCp = Checkpoint headRoot slot
+      attData = AttestationData slot headCp target source
       signingRoot = computeSigningRoot attData domain
       message = unBytesN signingRoot
       sig = forceRight $ sign privKey message 0
@@ -180,8 +181,9 @@ buildChain gs n = go gs (1 :: Slot) n [] []
 
 mkTestAttestation :: ValidatorIndex -> Slot -> Root -> Checkpoint -> Checkpoint -> SignedAttestation
 mkTestAttestation vi slot headRoot source target =
-  SignedAttestation
-    { saData = AttestationData slot headRoot source target
+  let headCp = Checkpoint headRoot slot
+  in  SignedAttestation
+    { saData = AttestationData slot headCp target source
     , saValidatorIndex = vi
     , saSignature = zeroSig
     }

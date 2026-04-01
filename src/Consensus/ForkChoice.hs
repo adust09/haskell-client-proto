@@ -124,7 +124,7 @@ updateLatestMessagesFromBlock store block =
   in  foldl' (\s att ->
         let ad = aaData att
             bits = aaAggregationBits att
-            headRoot = adHeadRoot ad
+            headRoot = cpRoot (adHead ad)
             attSlot = adSlot ad
             numBits = bitlistLen bits
             voterIndices =
@@ -163,7 +163,7 @@ onAttestation store sa = do
     then Left (AttestationSlotInFuture attSlot (stCurrentSlot store))
     else Right ()
 
-  let store1 = updateLatestMessage store vi attSlot (adHeadRoot ad)
+  let store1 = updateLatestMessage store vi attSlot (cpRoot (adHead ad))
   Right store1
 
 -- ---------------------------------------------------------------------------
