@@ -26,6 +26,19 @@ module Bench.Support.Generators
   , nextBlock50
   , headRoot5
   , headRoot50
+    -- * Crypto fixtures
+  , testPrivKey
+  , testPubKey
+  , testSignature
+  , testMessage
+  , testSigners3
+  , testAggProof3
+    -- * Wire fixtures
+  , encodedBlock
+  , compressedBlock
+    -- * Storage helpers
+  , withBenchStorage
+  , sampleRoot
   ) where
 
 import Control.DeepSeq (NFData (..))
@@ -34,17 +47,23 @@ import qualified Data.ByteString as BS
 import qualified Data.Map.Strict as Map
 import qualified Data.Vector as V
 import Data.Word (Word64)
+import System.IO.Unsafe (unsafePerformIO)
 
 import Consensus.Constants
 import Consensus.Types
 import Consensus.StateTransition (StateTransitionError, getProposerIndex, processSlot, stateTransition)
 import Consensus.ForkChoice (ForkChoiceError, initStore, onBlock, onTick)
+import Crypto.Error (CryptoError)
+import Crypto.LeanSig (PrivateKey, generateKeyPair, sign, serializePrivateKey)
+import Crypto.LeanMultisig (ProverContext (..), aggregate)
+import Network.P2P.Wire (compressWire)
 import SSZ.Bitlist (Bitlist, unBitlist, bitlistLen, mkBitlist)
 import SSZ.Bitvector (Bitvector, unBitvector)
-import SSZ.Common (BytesN, SszError, unBytesN, mkBytesN, zeroN)
+import SSZ.Common (BytesN, SszError, SszEncode (..), unBytesN, mkBytesN, zeroN)
 import SSZ.List (SszList, unSszList, mkSszList)
 import SSZ.Merkleization (SszHashTreeRoot (..))
 import SSZ.Vector (SszVector, unSszVector)
+import Storage (StorageHandle, withStorage)
 
 -- ---------------------------------------------------------------------------
 -- NFData orphan instances for SSZ types
@@ -109,6 +128,13 @@ instance NFData StateTransitionError where
 
 instance NFData ForkChoiceError where
   rnf x = x `seq` ()
+
+instance NFData CryptoError where
+  rnf x = x `seq` ()
+
+-- NFData for PrivateKey (opaque — force via serialization)
+instance NFData PrivateKey where
+  rnf pk = rnf (serializePrivateKey pk)
 
 -- ---------------------------------------------------------------------------
 -- Helper functions
@@ -301,3 +327,57 @@ headRoot5 = case stHead (fst chainStore5) of
 headRoot50 :: Root
 headRoot50 = case stHead (fst chainStore50) of
   Checkpoint r _ -> r
+
+-- ---------------------------------------------------------------------------
+-- Crypto fixtures
+-- ---------------------------------------------------------------------------
+
+testPrivKey :: PrivateKey
+testPubKey :: XmssPubkey
+(testPrivKey, testPubKey) = forceRight $ generateKeyPair 10 "bench-seed"
+
+testMessage :: ByteString
+testMessage = "benchmark-message-for-signing"
+
+testSignature :: XmssSignature
+testSignature = forceRight $ sign testPrivKey testMessage 0
+
+-- 3 signers for aggregation benchmarks
+testSigners3 :: [(XmssPubkey, XmssSignature)]
+testSigners3 =
+  [ let (pk, pub) = forceRight $ generateKeyPair 10 ("bench-signer-" <> BS.pack [fromIntegral i])
+        sig = forceRight $ sign pk testMessage 0
+    in  (pub, sig)
+  | i <- [0 :: Int .. 2]
+  ]
+
+testAggProof3 :: AggregatedSignatureProof
+testAggProof3 = forceRight $ unsafePerformIOForCAF $
+  aggregate ProverContext testSigners3 testMessage
+
+-- | Unsafe helper to evaluate IO in a CAF. Only for pre-computing benchmark data.
+unsafePerformIOForCAF :: IO a -> a
+unsafePerformIOForCAF = unsafePerformIO
+{-# NOINLINE unsafePerformIOForCAF #-}
+
+-- ---------------------------------------------------------------------------
+-- Wire fixtures
+-- ---------------------------------------------------------------------------
+
+encodedBlock :: ByteString
+encodedBlock = sszEncode sampleBlock4
+
+compressedBlock :: ByteString
+compressedBlock = compressWire encodedBlock
+
+-- ---------------------------------------------------------------------------
+-- Storage helpers
+-- ---------------------------------------------------------------------------
+
+-- | Run an IO benchmark action with a temporary storage handle.
+withBenchStorage :: (StorageHandle -> IO a) -> IO a
+withBenchStorage action =
+  withStorage "/tmp/lean-bench-storage" genesisState4 (fst chainStore5) action
+
+sampleRoot :: Root
+sampleRoot = toRoot sampleBlock4
