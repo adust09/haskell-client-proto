@@ -136,7 +136,7 @@ tests = testGroup "Network.Integration"
       case aggResult of
         Left err -> assertFailure ("aggregation failed: " <> show err)
         Right (aggAtt, aggProof) -> do
-          let saa = SignedAggregatedAttestation (aaData aggAtt) aggProof
+          let saa = SignedAggregatedAttestation aggAtt aggProof
           -- Setup message handler subscribing to TopicAggregation
           mn <- newMockNetwork
           handle <- mockP2PHandle mn

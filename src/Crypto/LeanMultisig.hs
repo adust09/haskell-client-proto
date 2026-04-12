@@ -20,8 +20,6 @@ import Consensus.Types (XmssPubkey (..), XmssSignature (..), LeanMultisigProof (
 import Crypto.Error (CryptoError (..))
 import Crypto.Hashing (sha256)
 import qualified Crypto.LeanSig as LeanSig
-import qualified SSZ.Bitlist
-import qualified SSZ.List
 
 -- | Prover context (stub: no resources needed).
 data ProverContext = ProverContext

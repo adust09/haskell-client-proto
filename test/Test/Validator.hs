@@ -8,8 +8,7 @@ import Control.Concurrent.STM
 
 import Actor (Actor (..), spawnActor)
 import Consensus.StateTransition (getProposerIndex, processSlot)
-import Consensus.ForkChoice (onTick)
-import Consensus.Types (XmssPubkey)
+import Consensus.Types (XmssPubkey, stTime)
 import Crypto.KeyManager (newManagedKey)
 import Crypto.LeanSig (PrivateKey, generateKeyPair)
 import Crypto.SigningRoot (computeDomain)

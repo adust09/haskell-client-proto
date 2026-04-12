@@ -4,23 +4,15 @@ import Test.Tasty
 import Test.Tasty.HUnit
 
 import qualified Data.ByteString as BS
-import Data.Word (Word8)
-import Consensus.Constants (BYTE_LIST_MIB)
 import Consensus.Types (AggregatedSignatureProof (..), LeanMultisigProof (..))
 import Crypto.Error (CryptoError (..))
 import Crypto.LeanSig (generateKeyPair, sign)
 import Crypto.LeanMultisig
-import SSZ.Common (SszError)
-import SSZ.List (SszList, mkSszList, unSszList)
 
 -- | Unwrap a Right or fail.
 unsafeRight :: (Show e) => Either e a -> a
 unsafeRight (Right x) = x
 unsafeRight (Left e)  = error ("unexpected Left: " <> show e)
-
--- | Helper to convert ByteString to SszList Word8 for tampering.
-mkSszListFromBytes :: BS.ByteString -> Either SszError (SszList BYTE_LIST_MIB Word8)
-mkSszListFromBytes bs = mkSszList (BS.unpack bs)
 
 tests :: TestTree
 tests = testGroup "Crypto.LeanMultisig"

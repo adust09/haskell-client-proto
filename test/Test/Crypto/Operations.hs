@@ -110,11 +110,11 @@ tests = testGroup "Crypto.Operations"
           Left err -> assertFailure ("aggregation failed: " <> show err)
           Right (aggAtt, aggProof) -> do
             -- Build SignedAggregatedAttestation and verify
-            let saa = SignedAggregatedAttestation (aaData aggAtt) aggProof
+            let saa = SignedAggregatedAttestation aggAtt aggProof
             valid <- unsafeRight <$> verifyAggregatedAttestation verifier saa pubs testDomain
             valid @?= True
 
-  , testCase "duplicate validator indices in aggregation are idempotent" $
+  , testCase "duplicate validator indices in aggregation are rejected" $
       withSystemTempDirectory "ops-test" $ \tmpDir -> do
         prover <- setupProver
         let (pk, pub) = unsafeRight $ generateKeyPair 10 "test-seed"
@@ -122,11 +122,10 @@ tests = testGroup "Crypto.Operations"
         let keyPath = tmpDir </> "key.dat"
         sa1 <- unsafeRight <$> signAttestation mk keyPath testAttData 0 testDomain
         sa2 <- unsafeRight <$> signAttestation mk keyPath testAttData 0 testDomain  -- same index
-        -- In leanSpec, duplicate indices are handled by bitlist (idempotent set)
         result <- aggregateAttestations prover [sa1, sa2] [pub] testDomain
         case result of
-          Right _ -> pure ()
-          Left e -> assertFailure ("unexpected error: " <> show e)
+          Left (AggregationFailed _) -> pure ()
+          other -> assertFailure ("expected AggregationFailed, got: " <> show other)
 
   , testCase "mixed AttestationData in aggregation -> error" $
       withSystemTempDirectory "ops-test" $ \tmpDir -> do

@@ -31,7 +31,6 @@ import Crypto.Hashing (sha256)
 import Crypto.LeanMultisig (VerifierContext)
 import Network.P2P.Types (P2PHandle (..), Topic (..))
 import Network.P2P.Wire (decodeWire)
-import SSZ.List (unSszList)
 
 -- ---------------------------------------------------------------------------
 -- Types
@@ -117,13 +116,6 @@ validateAttestation store sa _expectedSubnet curSlot =
           else case onAttestation store sa of
             Left _  -> Reject
             Right _ -> Accept
-
--- | Validate a gossiped aggregated attestation (requires IO for multisig verify).
-validateAggregation :: VerifierContext -> Store -> SignedAggregatedAttestation -> Slot
-                    -> IO ValidationResult
-validateAggregation _verifier _store _saa _curSlot =
-  -- Aggregation verification is handled during block inclusion
-  pure Accept
 
 -- ---------------------------------------------------------------------------
 -- Handler

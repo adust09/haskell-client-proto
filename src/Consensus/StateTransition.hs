@@ -50,10 +50,6 @@ data StateTransitionError
 -- Validator helpers
 -- ---------------------------------------------------------------------------
 
--- | All validators are always active in leanSpec (no lifecycle).
-isActiveValidator :: Validator -> Slot -> Bool
-isActiveValidator _ _ = True
-
 -- | Proposer selection: slot % numValidators.
 getProposerIndex :: BeaconState -> ValidatorIndex
 getProposerIndex bs =

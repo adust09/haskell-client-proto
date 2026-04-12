@@ -101,14 +101,7 @@ forceRight (Left _)  = error "forceRight: unexpected Left"
 
 tests :: TestTree
 tests = testGroup "Consensus.StateTransition"
-  [ testGroup "isActiveValidator"
-      [ testCase "always active in leanSpec" $ do
-          let v = mkValidator 0
-          isActiveValidator v 0 @?= True
-          isActiveValidator v 50 @?= True
-          isActiveValidator v maxBound @?= True
-      ]
-  , testGroup "processSlots"
+  [ testGroup "processSlots"
       [ testCase "no-op when target equals current" $ do
           let bs = mkGenesisState [mkValidator 0]
           processSlots bs 0 @?= Right bs

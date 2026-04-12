@@ -6,7 +6,7 @@ import Data.Word (Word64)
 import Test.Tasty
 import Test.Tasty.HUnit
 
-import Consensus.ForkChoice (initStore, onBlock, onTick)
+import Consensus.ForkChoice (initStore, onBlock)
 import Consensus.StateTransition (stateTransition)
 import Consensus.Types
 import Network.P2P.Wire (encodeWire)
