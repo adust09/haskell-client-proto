@@ -41,7 +41,7 @@ zeroCheckpoint = Checkpoint zeroRoot 0
 
 zeroBlockSignatures :: BlockSignatures
 zeroBlockSignatures = BlockSignatures
-  { bsigAttestationSignatures = case mkSszList @MAX_ATTESTATIONS [] of
+  { bsigAttestationSignatures = case mkSszList @MAX_ATTESTATION_SIGNATURES [] of
       Right sl -> sl
       Left _   -> error "zeroBlockSignatures"
   , bsigProposerSignature = zeroSig
@@ -86,13 +86,14 @@ mkGenesisState vals =
 
 mkEmptyBody :: BeaconBlockBody
 mkEmptyBody = BeaconBlockBody
-  { bbbAttestations = case mkSszList @MAX_ATTESTATIONS [] of
-      Right sl -> sl
-      Left _   -> error "mkEmptyBody"
-  }
+  { bbbAttestations = forceRight $ mkSszList @MAX_ATTESTATIONS [] }
 
 mkGenesisBlock :: BeaconBlock
 mkGenesisBlock = BeaconBlock 0 0 zeroRoot zeroRoot mkEmptyBody
+
+forceRight :: Either e a -> a
+forceRight (Right a) = a
+forceRight (Left _)  = error "forceRight: unexpected Left"
 
 cfg :: Config
 cfg = Config 0

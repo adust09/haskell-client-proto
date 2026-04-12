@@ -21,7 +21,7 @@ import Consensus.Types
   ( BeaconState (..)
   , BeaconBlockHeader (..)
   , Checkpoint (..)
-  , Store (..)
+  , currentSlot
   )
 import SSZ.Common (unBytesN)
 import Storage (StorageHandle, readCurrentState, readForkChoiceStore)
@@ -75,7 +75,7 @@ rpcApp storage req respond = do
       let headRoot = getHead store
       respond $ jsonResponse status200 $ object
         [ "root" .= hexEncode (unBytesN headRoot)
-        , "slot" .= (stTime store `div` 5)
+        , "slot" .= currentSlot store
         ]
 
     _ ->

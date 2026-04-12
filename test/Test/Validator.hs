@@ -8,7 +8,8 @@ import Control.Concurrent.STM
 
 import Actor (Actor (..), spawnActor)
 import Consensus.StateTransition (getProposerIndex, processSlot)
-import Consensus.Types (Store (..), XmssPubkey)
+import Consensus.ForkChoice (onTick)
+import Consensus.Types (XmssPubkey)
 import Crypto.KeyManager (newManagedKey)
 import Crypto.LeanSig (PrivateKey, generateKeyPair)
 import Crypto.SigningRoot (computeDomain)
@@ -39,10 +40,10 @@ tests = testGroup "Validator"
 -- | Test that getProposerIndex correctly identifies the proposer.
 testProposalDutyDetection :: IO ()
 testProposalDutyDetection = do
-  let vals = [ mkTestValidator 0
-             , mkTestValidator 1
-             , mkTestValidator 2
-             , mkTestValidator 3
+  let vals = [ mkTestValidator 0 0
+             , mkTestValidator 1 1
+             , mkTestValidator 2 2
+             , mkTestValidator 3 3
              ]
       gs = mkTestGenesisState vals
 

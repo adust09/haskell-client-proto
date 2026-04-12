@@ -6,7 +6,7 @@ import Data.Word (Word64)
 import Test.Tasty
 import Test.Tasty.HUnit
 
-import Consensus.ForkChoice (initStore, onBlock)
+import Consensus.ForkChoice (initStore, onBlock, onTick)
 import Consensus.StateTransition (stateTransition)
 import Consensus.Types
 import Network.P2P.Wire (encodeWire)
@@ -20,7 +20,7 @@ cfg = Config 0
 tests :: TestTree
 tests = testGroup "Network.Sync"
   [ testCase "onBlock accepts blocks built by stateTransition" $ do
-      let vals = [mkTestValidator 1]
+      let vals = [mkTestValidator 1 0]
           gs = mkTestGenesisState vals
           genesisBlock = mkTestGenesisBlock
           store0 = initStore gs genesisBlock cfg
@@ -29,11 +29,10 @@ tests = testGroup "Network.Sync"
       case onBlock store1 sbb1 of
         Left err -> assertFailure $ "onBlock failed: " <> show err
         Right store2 -> do
-          -- stTime doesn't change with onBlock; check blocks instead
           Map.size (stBlocks store2) @?= 2
 
   , testCase "syncBatch applies one block" $ do
-      let vals = [mkTestValidator 1]
+      let vals = [mkTestValidator 1 0]
           gs = mkTestGenesisState vals
           genesisBlock = mkTestGenesisBlock
           sbb1 = mkTestSignedBlock gs 1
@@ -51,7 +50,7 @@ tests = testGroup "Network.Sync"
         Right slot -> slot @?= 1
 
   , testCase "sync from genesis to slot 3" $ do
-      let vals = [mkTestValidator 1]
+      let vals = [mkTestValidator 1 0]
           gs = mkTestGenesisState vals
           genesisBlock = mkTestGenesisBlock
 
@@ -87,7 +86,7 @@ tests = testGroup "Network.Sync"
                   Map.size (stBlocks store) @?= 4  -- genesis + 3
 
   , testCase "sync with no blocks needed returns Synced" $ do
-      let vals = [mkTestValidator 1]
+      let vals = [mkTestValidator 1 0]
           gs = mkTestGenesisState vals
           genesisBlock = mkTestGenesisBlock
 

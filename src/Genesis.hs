@@ -17,6 +17,7 @@ import qualified Data.ByteString.Base16 as Base16
 import qualified Data.Text as T
 import Data.Text.Encoding (encodeUtf8)
 import Data.Time.Clock (UTCTime)
+import Data.Time.Clock.POSIX (utcTimeToPOSIXSeconds)
 import Data.Time.Format (defaultTimeLocale, parseTimeM)
 import Data.Word (Word64)
 
@@ -53,12 +54,15 @@ instance FromJSON GenesisValidator where
   parseJSON = withObject "GenesisValidator" $ \o -> do
     attPubkeyHex  <- o .: "attestation_pubkey"
     propPubkeyHex <- o .: "proposal_pubkey"
-    attPubkeyBs   <- parseHexField "attestation_pubkey" attPubkeyHex
-    propPubkeyBs  <- parseHexField "proposal_pubkey" propPubkeyHex
-    case (mkXmssPubkey attPubkeyBs, mkXmssPubkey propPubkeyBs) of
-      (Right attPk, Right propPk) -> pure $ GenesisValidator attPk propPk
-      (Left err, _) -> fail $ "Invalid attestation_pubkey: " <> show err
-      (_, Left err) -> fail $ "Invalid proposal_pubkey: " <> show err
+    attBs  <- parseHexField "attestation_pubkey" attPubkeyHex
+    propBs <- parseHexField "proposal_pubkey" propPubkeyHex
+    attPk  <- case mkXmssPubkey attBs of
+      Left err -> fail $ "Invalid attestation_pubkey: " <> show err
+      Right pk -> pure pk
+    propPk <- case mkXmssPubkey propBs of
+      Left err -> fail $ "Invalid proposal_pubkey: " <> show err
+      Right pk -> pure pk
+    pure $ GenesisValidator attPk propPk
 
 instance FromJSON GenesisConfig where
   parseJSON = withObject "GenesisConfig" $ \o -> do
@@ -87,29 +91,29 @@ parseHexField fieldName hexStr = do
 -- State initialization
 -- ---------------------------------------------------------------------------
 
--- | Build the genesis BeaconState from configuration.
+-- | Build the genesis BeaconState from configuration (leanSpec 10-field model).
 initializeGenesisState :: GenesisConfig -> BeaconState
 initializeGenesisState gc =
-  let validators = zipWith toValidator (gcValidators gc) [0..]
-      valList    = forceRight $ mkSszList @VALIDATOR_REGISTRY_LIMIT validators
-      emptyHistHashes = forceRight $ mkSszList @HISTORICAL_ROOTS_LIMIT []
-      emptyJustifiedSlots = forceRight $ mkBitlist @HISTORICAL_ROOTS_LIMIT []
-      emptyJustRoots = forceRight $ mkSszList @HISTORICAL_ROOTS_LIMIT []
-      emptyJustVals = forceRight $ mkBitlist @1073741824 []
+  let validators = zipWith toValidator [0..] (gcValidators gc)
+      genesisTimeUnix = floor (utcTimeToPOSIXSeconds (gcGenesisTime gc)) :: Word64
+      config = Config { cfgGenesisTime = genesisTimeUnix }
+      valList    = forceRight $ mkSszList @VALIDATORS_LIMIT validators
+      emptyHashes = forceRight $ mkSszList @HISTORICAL_BLOCK_HASHES_LIMIT []
+      emptyJSlots = forceRight $ mkBitlist @JUSTIFIED_SLOTS_LIMIT []
+      emptyJRoots = forceRight $ mkSszList @JUSTIFICATIONS_ROOTS_LIMIT []
+      emptyJVals  = forceRight $ mkBitlist @JUSTIFICATIONS_VALIDATORS_LIMIT []
       bodyRoot   = toRoot mkEmptyBody
-      genesisTime = 0  -- placeholder; real genesis time is in Config
-      cfg = Config { cfgGenesisTime = genesisTime }
   in  BeaconState
-    { bsConfig                   = cfg
+    { bsConfig                   = config
     , bsSlot                     = 0
     , bsLatestBlockHeader        = BeaconBlockHeader 0 0 zeroRoot zeroRoot bodyRoot
     , bsLatestJustified          = zeroCheckpoint
     , bsLatestFinalized          = zeroCheckpoint
-    , bsHistoricalBlockHashes    = emptyHistHashes
-    , bsJustifiedSlots           = emptyJustifiedSlots
+    , bsHistoricalBlockHashes    = emptyHashes
+    , bsJustifiedSlots           = emptyJSlots
     , bsValidators               = valList
-    , bsJustificationsRoots      = emptyJustRoots
-    , bsJustificationsValidators = emptyJustVals
+    , bsJustificationsRoots      = emptyJRoots
+    , bsJustificationsValidators = emptyJVals
     }
 
 -- | The genesis block (slot 0, zero parent root).
@@ -137,8 +141,8 @@ parseGenesisConfig = Aeson.eitherDecode
 -- Internal helpers
 -- ---------------------------------------------------------------------------
 
-toValidator :: GenesisValidator -> ValidatorIndex -> Validator
-toValidator gv idx = Validator
+toValidator :: ValidatorIndex -> GenesisValidator -> Validator
+toValidator idx gv = Validator
   { vAttestationPubkey = gvAttestationPubkey gv
   , vProposalPubkey    = gvProposalPubkey gv
   , vIndex             = idx

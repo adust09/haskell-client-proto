@@ -62,7 +62,7 @@ tests = testGroup "Network.RPC"
 
 withTestStorage :: (StorageHandle -> IO a) -> IO a
 withTestStorage f = do
-  let vals = [mkTestValidator 0, mkTestValidator 1]
+  let vals = [mkTestValidator 0 0, mkTestValidator 1 1]
       gs = mkTestGenesisState vals
       gb = mkTestGenesisBlock
       store = initStore gs gb (Config 0)

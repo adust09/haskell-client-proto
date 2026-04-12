@@ -13,10 +13,11 @@ import Data.ByteString (ByteString)
 import Data.Word (Word64)
 
 import Consensus.Constants (Slot)
-import Consensus.ForkChoice (onBlock)
-import Consensus.Types (Store (..), SignedBlock (..), BeaconBlock (..))
+import Consensus.ForkChoice (onBlock, onTick)
+import Consensus.Types (Store (..), Config (..), SignedBlock (..), BeaconBlock (..), currentSlot)
 import Network.P2P.Types (P2PHandle (..))
 import Network.P2P.Wire (decodeWire)
+import Consensus.Constants (slotDuration)
 
 -- ---------------------------------------------------------------------------
 -- Types
@@ -37,10 +38,6 @@ data SyncEnv = SyncEnv
   , seBatchSize   :: !Word64
   }
 
--- | Get current slot from store (derived from time / intervals_per_slot).
-storeCurrentSlot :: Store -> Slot
-storeCurrentSlot store = stTime store `div` 5
-
 -- ---------------------------------------------------------------------------
 -- Sync logic
 -- ---------------------------------------------------------------------------
@@ -49,7 +46,7 @@ storeCurrentSlot store = stTime store `div` 5
 runSync :: SyncEnv -> Slot -> IO SyncStatus
 runSync env targetSlot = do
   store <- readTVarIO (seStore env)
-  let headSlot = storeCurrentSlot store
+  let headSlot = currentSlot store
   if headSlot >= targetSlot
     then do
       atomically $ writeTVar (seStatus env) Synced
@@ -59,13 +56,13 @@ runSync env targetSlot = do
       syncLoop env headSlot targetSlot
 
 syncLoop :: SyncEnv -> Slot -> Slot -> IO SyncStatus
-syncLoop env currentSlot targetSlot
-  | currentSlot >= targetSlot = do
+syncLoop env curSlot targetSlot
+  | curSlot >= targetSlot = do
       atomically $ writeTVar (seStatus env) Synced
       pure Synced
   | otherwise = do
       let batchSize = seBatchSize env
-          startSlot = currentSlot + 1
+          startSlot = curSlot + 1
       result <- syncBatch env startSlot batchSize
       case result of
         Left err -> do
@@ -85,7 +82,7 @@ syncBatch env startSlot count = do
 applyBlocks :: SyncEnv -> [ByteString] -> Slot -> IO (Either String Slot)
 applyBlocks env [] _lastSlot = do
   store <- readTVarIO (seStore env)
-  pure (Right (storeCurrentSlot store))
+  pure (Right (currentSlot store))
 applyBlocks env (raw:rest) _fallbackSlot =
   case decodeWire raw of
     Left err -> pure (Left ("SSZ decode failed: " <> show err))
@@ -94,7 +91,10 @@ applyBlocks env (raw:rest) _fallbackSlot =
       result <- atomically $ do
         store <- readTVar (seStore env)
         -- Advance time so onBlock doesn't reject the block as "future"
-        let store' = store { stTime = max (blockSlot * 5) (stTime store) }
+        let slotSec = fromIntegral (slotDuration `div` 1_000_000)
+            genesis = cfgGenesisTime (stConfig store)
+            blockTime = genesis + blockSlot * slotSec
+            store' = onTick store (max blockTime (stTime store))
         case onBlock store' sb of
           Left err -> pure (Left (show err))
           Right store'' -> do
@@ -102,4 +102,4 @@ applyBlocks env (raw:rest) _fallbackSlot =
             pure (Right store'')
       case result of
         Left err -> pure (Left ("block application failed: " <> err))
-        Right store' -> applyBlocks env rest (storeCurrentSlot store')
+        Right store' -> applyBlocks env rest (currentSlot store')

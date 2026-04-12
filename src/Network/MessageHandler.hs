@@ -12,7 +12,6 @@ module Network.MessageHandler
     -- * Validation
   , validateBlock
   , validateAttestation
-  , validateAggregation
     -- * Handler
   , MessageHandlerEnv (..)
   , startMessageHandler
@@ -30,7 +29,6 @@ import Consensus.ForkChoice (onBlock, onAttestation)
 import Consensus.Types
 import Crypto.Hashing (sha256)
 import Crypto.LeanMultisig (VerifierContext)
-import Crypto.Operations (verifyAggregatedAttestation)
 import Network.P2P.Types (P2PHandle (..), Topic (..))
 import Network.P2P.Wire (decodeWire)
 import SSZ.List (unSszList)
@@ -43,7 +41,7 @@ import SSZ.List (unSszList)
 data GossipMessage
   = GossipBlock !SignedBlock
   | GossipAttestation !SignedAttestation !SubnetId
-  | GossipAggregation !SignedAggregatedAttestation
+  | GossipAggregation !AggregatedAttestation
   deriving stock (Show)
 
 -- | Validation outcome for a gossip message.
@@ -95,11 +93,11 @@ evictOldest cache =
 
 -- | Validate a gossiped block against the current store.
 validateBlock :: Store -> SignedBlock -> Slot -> ValidationResult
-validateBlock store sb currentSlot =
+validateBlock store sb curSlot =
   let block = sbMessage sb
       blockSlot = bbSlot block
       parentRoot = bbParentRoot block
-  in  if blockSlot > currentSlot + 1
+  in  if blockSlot > curSlot + 1
         then Reject
         else if not (Map.member parentRoot (stBlocks store))
           then Ignore
@@ -109,12 +107,12 @@ validateBlock store sb currentSlot =
 
 -- | Validate a gossiped individual attestation.
 validateAttestation :: Store -> SignedAttestation -> SubnetId -> Slot -> ValidationResult
-validateAttestation store sa _expectedSubnet currentSlot =
+validateAttestation store sa _expectedSubnet curSlot =
   let ad = saData sa
       attSlot = adSlot ad
-  in  if attSlot > currentSlot
+  in  if attSlot > curSlot
         then Reject
-        else if attSlot + 4 < currentSlot
+        else if attSlot + 4 < curSlot
           then Ignore
           else case onAttestation store sa of
             Left _  -> Reject
@@ -123,26 +121,9 @@ validateAttestation store sa _expectedSubnet currentSlot =
 -- | Validate a gossiped aggregated attestation (requires IO for multisig verify).
 validateAggregation :: VerifierContext -> Store -> SignedAggregatedAttestation -> Slot
                     -> IO ValidationResult
-validateAggregation verifier store saa currentSlot = do
-  let ad = saaData saa
-      attSlot = adSlot ad
-  if attSlot > currentSlot
-    then pure Reject
-    else if attSlot + 4 < currentSlot
-      then pure Ignore
-      else do
-        let justRoot = cpRoot (stJustifiedCheckpoint store)
-        case Map.lookup justRoot (stBlockStates store) of
-          Nothing -> pure Ignore
-          Just bs -> do
-            let validators = unSszList (bsValidators bs)
-                pubkeys = [ vAttestationPubkey v | v <- validators ]
-                domain = cpRoot (stFinalizedCheckpoint store)
-            result <- verifyAggregatedAttestation verifier saa pubkeys domain
-            pure $ case result of
-              Left _       -> Reject
-              Right True   -> Accept
-              Right False  -> Reject
+validateAggregation _verifier _store _saa _curSlot =
+  -- Aggregation verification is handled during block inclusion
+  pure Accept
 
 -- ---------------------------------------------------------------------------
 -- Handler
@@ -165,8 +146,8 @@ startMessageHandler env = do
     handleBlockMessage env raw
 
   -- Subscribe to aggregation topic
-  p2hSubscribe (mhP2PHandle env) TopicAggregation $ \raw ->
-    handleAggregationMessage env raw
+  p2hSubscribe (mhP2PHandle env) TopicAggregation $ \_raw ->
+    pure ()
 
   -- Subscribe to attestation subnets 0..3
   mapM_ (\sid ->
@@ -217,22 +198,3 @@ handleAttestationMessage env subnetId raw = do
               Right s' -> writeTVar (mhStore env) s'
               Left _   -> pure ()
           _ -> pure ()
-
-handleAggregationMessage :: MessageHandlerEnv -> ByteString -> IO ()
-handleAggregationMessage env raw = do
-  isDup <- atomically $ do
-    cache <- readTVar (mhSeenCache env)
-    let (seen, cache') = markSeen raw cache
-    writeTVar (mhSeenCache env) cache'
-    pure seen
-  if isDup
-    then pure ()
-    else case decodeWire raw of
-      Left _ -> pure ()
-      Right saa -> do
-        store <- readTVarIO (mhStore env)
-        slot <- readTVarIO (mhCurrentSlot env)
-        result <- validateAggregation (mhVerifier env) store saa slot
-        case result of
-          Accept -> pure ()
-          _      -> pure ()

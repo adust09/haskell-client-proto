@@ -9,16 +9,18 @@ module Crypto.Operations
   , verifyAggregatedAttestation
   ) where
 
+import Data.List (nub)
+
 import Consensus.Constants (Domain, ValidatorIndex)
 import Consensus.Types
   ( AttestationData
+  , AggregatedAttestation (..)
   , BeaconBlock
+  , BlockSignatures (..)
   , SignedAttestation (..)
   , SignedAggregatedAttestation (..)
   , AggregatedSignatureProof (..)
-  , AggregatedAttestation (..)
   , SignedBlock (..)
-  , BlockSignatures (..)
   , XmssPubkey (..)
   )
 import Crypto.Error (CryptoError (..))
@@ -83,28 +85,30 @@ aggregateAttestations prover attestations committee domain = do
     then pure (Left (AggregationFailed "mixed AttestationData in aggregation"))
     else do
       let valIndices = map saValidatorIndex attestations
-          committeeSize = length committee
-          bits = [fromIntegral i `elem` valIndices | i <- [0 .. committeeSize - 1]]
-      case mkBitlist bits of
-        Left _sszErr -> pure (Left (AggregationFailed "bitlist construction failed"))
-        Right bitlist -> do
-          let signers = [ (committee !! fromIntegral (saValidatorIndex att), saSignature att)
-                        | att <- attestations ]
-              signingRoot = computeSigningRoot firstData domain
-              message = unBytesN signingRoot
-          result <- aggregate prover signers message
-          pure $ case result of
-            Left e -> Left e
-            Right proof ->
-              let aggProof = proof { aspParticipants = bitlist }
-                  aggAtt = AggregatedAttestation bitlist firstData
-              in  Right (aggAtt, aggProof)
+      if length (nub valIndices) /= length valIndices
+        then pure (Left (AggregationFailed "duplicate validator indices"))
+        else do
+          let committeeSize = length committee
+              bits = [fromIntegral i `elem` valIndices | i <- [0 .. committeeSize - 1]]
+          case mkBitlist bits of
+            Left _sszErr -> pure (Left (AggregationFailed "bitlist construction failed"))
+            Right bitlist -> do
+              let signers = [ (committee !! fromIntegral (saValidatorIndex att), saSignature att)
+                            | att <- attestations ]
+                  signingRoot = computeSigningRoot firstData domain
+                  message = unBytesN signingRoot
+              result <- aggregate prover signers message
+              pure $ case result of
+                Left e -> Left e
+                Right proof ->
+                  let aggAtt = AggregatedAttestation bitlist firstData
+                  in  Right (aggAtt, proof)
 
 -- | Verify an aggregated attestation.
 verifyAggregatedAttestation :: VerifierContext -> SignedAggregatedAttestation
                             -> [XmssPubkey] -> Domain -> IO (Either CryptoError Bool)
 verifyAggregatedAttestation verifier saa pubkeys domain = do
-  let signingRoot = computeSigningRoot (saaData saa) domain
+  let signingRoot = computeSigningRoot (aaData (saaData saa)) domain
       message = unBytesN signingRoot
       proof = saaProof saa
   verifyAggregation verifier proof pubkeys message

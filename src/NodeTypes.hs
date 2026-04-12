@@ -10,7 +10,7 @@ import Consensus.Constants (Slot)
 import Consensus.Types
   ( SignedBlock
   , SignedAttestation
-  , SignedAggregatedAttestation
+  , AggregatedAttestation
   )
 
 -- | Messages for the blockchain (fork-choice) actor.
@@ -18,14 +18,14 @@ data BlockchainMsg
   = BcSlotTick !Slot
   | BcNewBlock !SignedBlock
   | BcNewAttestation !SignedAttestation
-  | BcNewAggregation !SignedAggregatedAttestation
+  | BcNewAggregation !AggregatedAttestation
   | BcShutdown
 
 -- | Messages for the P2P networking actor.
 data P2PMsg
   = P2PPublishBlock !SignedBlock
   | P2PPublishAttestation !SignedAttestation
-  | P2PPublishAggregation !SignedAggregatedAttestation
+  | P2PPublishAggregation !AggregatedAttestation
   | P2PShutdown
 
 -- | Messages for the validator duty actor.

@@ -20,11 +20,20 @@ module Consensus.Constants
     -- * Finality
   , slotsToFinality
   , JUSTIFICATION_LOOKBACK_SLOTS
-    -- * Type-level constants
+    -- * Type-level constants (leanSpec)
   , MAX_ATTESTATIONS
-  , VALIDATOR_REGISTRY_LIMIT
   , HISTORICAL_ROOTS_LIMIT
-  , BYTE_LIST_MIB
+  , VALIDATOR_REGISTRY_LIMIT
+  , BYTES_PER_MIB
+  , VALIDATORS_LIMIT
+  , HISTORICAL_BLOCK_HASHES_LIMIT
+  , JUSTIFIED_SLOTS_LIMIT
+  , JUSTIFICATIONS_ROOTS_LIMIT
+  , JUSTIFICATIONS_VALIDATORS_LIMIT
+  , MAX_ATTESTATION_SIGNATURES
+    -- * Value-level constants
+  , intervalsPerSlot
+  , justificationLookbackSlots
     -- * Crypto sizes
   , xmssSignatureSize
   , xmssPubkeySize
@@ -79,7 +88,7 @@ slotsToFinality :: Word64
 slotsToFinality = 3
 
 -- ---------------------------------------------------------------------------
--- Type-level constants for SSZ collections (aligned with leanSpec)
+-- Type-level constants for SSZ collections (aligned with leanSpec config.py)
 -- ---------------------------------------------------------------------------
 
 -- | Intervals per slot (leanSpec: 5).
@@ -88,17 +97,30 @@ type INTERVALS_PER_SLOT = 5
 -- | Justification lookback slots (leanSpec: 3).
 type JUSTIFICATION_LOOKBACK_SLOTS = 3
 
--- | Max attestations in a block body / state (leanSpec: 4096).
-type MAX_ATTESTATIONS = 4096
+type MAX_ATTESTATIONS         = 4096
+type HISTORICAL_ROOTS_LIMIT   = 262144  -- 2^18
+type VALIDATOR_REGISTRY_LIMIT = 4096    -- 2^12
+type BYTES_PER_MIB            = 1048576
 
--- | Maximum number of validators (leanSpec: 2^12 = 4096).
-type VALIDATOR_REGISTRY_LIMIT = 4096
+-- ---------------------------------------------------------------------------
+-- Value-level constants (aligned with leanSpec config.py)
+-- ---------------------------------------------------------------------------
 
--- | Historical roots limit (leanSpec: 2^18 = 262144).
-type HISTORICAL_ROOTS_LIMIT = 262144
+-- | Number of intervals per slot.
+intervalsPerSlot :: Word64
+intervalsPerSlot = 5
 
--- | ByteList max size: 1 MiB in bytes (leanSpec: proof_data limit).
-type BYTE_LIST_MIB = 1048576
+-- | Number of slots to look back for justification.
+justificationLookbackSlots :: Word64
+justificationLookbackSlots = 3
+
+-- leanSpec constants
+type VALIDATORS_LIMIT                  = 4096
+type HISTORICAL_BLOCK_HASHES_LIMIT     = 262144
+type JUSTIFIED_SLOTS_LIMIT             = 262144
+type JUSTIFICATIONS_ROOTS_LIMIT        = 262144
+type JUSTIFICATIONS_VALIDATORS_LIMIT   = 1073741824
+type MAX_ATTESTATION_SIGNATURES        = 4096
 
 -- ---------------------------------------------------------------------------
 -- Crypto sizes
@@ -108,7 +130,7 @@ type BYTE_LIST_MIB = 1048576
 xmssSignatureSize :: Int
 xmssSignatureSize = 3112
 
--- | XMSS public key size in bytes (leanSpec: 52 bytes).
+-- | XMSS public key size in bytes (aligned with leanSpec: 52 bytes).
 xmssPubkeySize :: Int
 xmssPubkeySize = 52
 

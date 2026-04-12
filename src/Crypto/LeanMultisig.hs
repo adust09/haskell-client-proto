@@ -16,7 +16,7 @@ import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
 import Data.Word (Word32)
 
-import Consensus.Types (XmssPubkey (..), XmssSignature (..), AggregatedSignatureProof (..))
+import Consensus.Types (XmssPubkey (..), XmssSignature (..), LeanMultisigProof (..), AggregatedSignatureProof (..))
 import Crypto.Error (CryptoError (..))
 import Crypto.Hashing (sha256)
 import qualified Crypto.LeanSig as LeanSig
@@ -58,16 +58,13 @@ aggregate _ signers message = do
           pubkeyBytes = map (\(XmssPubkey p, _) -> p) signers
           aggregateHash = computeAggregateHash pubkeyBytes digests message count
           proofBytes = aggregateHash <> encodeLE32 count <> BS.concat digests
-      case (SSZ.Bitlist.mkBitlist [], SSZ.List.mkSszList (BS.unpack proofBytes)) of
-        (Right bits, Right proofData) ->
-          pure (Right (AggregatedSignatureProof bits proofData))
-        _ -> pure (Left (AggregationFailed "proof construction failed"))
+      pure (Right (AggregatedSignatureProof (LeanMultisigProof proofBytes)))
 
 -- | Verify an aggregation proof against a set of public keys and message.
 verifyAggregation :: VerifierContext -> AggregatedSignatureProof -> [XmssPubkey] -> ByteString
                   -> IO (Either CryptoError Bool)
-verifyAggregation _ aggProof pubkeys message = pure $ do
-  let proofBytes = BS.pack (SSZ.List.unSszList (aspProofData aggProof))
+verifyAggregation _ asp pubkeys message = pure $ do
+  let proofBytes = unLeanMultisigProof (aspProof asp)
   if BS.length proofBytes < 36
     then Right False
     else do

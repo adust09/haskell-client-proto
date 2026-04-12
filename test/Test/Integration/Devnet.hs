@@ -29,16 +29,14 @@ cfg = Config 0
 tests :: TestTree
 tests = testGroup "Integration.Devnet"
   [ testCase "genesis sync: node syncs blocks from peers after genesis init" $ do
-      let vals = [mkTestValidator 1]
+      let vals = [mkTestValidator 1 0]
           gs = mkTestGenesisState vals
           genesisBlock = mkTestGenesisBlock
 
-      -- Build a 10-block chain to simulate devnet history
       let (blocks, _states) = buildChain gs 10
           blockMap = Map.fromList
             [ (bbSlot (sbMessage sbb), encodeWire sbb) | sbb <- blocks ]
 
-      -- Node starts from genesis and syncs
       mn <- newMockNetwork
       handle <- mockP2PHandleWithBlocks mn blockMap
       storeVar <- newTVarIO (initStore gs genesisBlock cfg)
@@ -53,11 +51,10 @@ tests = testGroup "Integration.Devnet"
         11 (Map.size (stBlocks store))
 
   , testCase "block following: node receives and validates new blocks via gossip" $ do
-      let vals = [mkTestValidator 1]
+      let vals = [mkTestValidator 1 0]
           gs = mkTestGenesisState vals
           genesisBlock = mkTestGenesisBlock
 
-      -- Build 3 blocks
       let (blocks, _states) = buildChain gs 3
 
       mn <- newMockNetwork
@@ -72,7 +69,6 @@ tests = testGroup "Integration.Devnet"
       startMessageHandler env
       threadDelay 10_000
 
-      -- Feed blocks one by one via gossip
       mapM_ (\sbb -> do
         broadcastAll mn TopicBeaconBlock (encodeWire sbb)
         threadDelay 50_000
@@ -120,7 +116,6 @@ tests = testGroup "Integration.Devnet"
       let genesis = mkTestGenesis
           (gs, forkStore) = initializeGenesis genesis
 
-      -- Session 1: start node, advance slots, stop
       withStorage "/tmp/lc-test-devnet-restart" gs forkStore $ \sh -> do
         actors <- startNode defaultNodeConfig sh genesis
         runSlotTicker actors 1
@@ -149,7 +144,6 @@ tests = testGroup "Integration.Devnet"
       withStorage "/tmp/lc-test-devnet-stability" gs forkStore $ \sh -> do
         actors <- startNode defaultNodeConfig sh genesis
 
-        -- Advance through 100 slots
         let targetSlot = 100 :: Slot
         mapM_ (\slot -> do
           runSlotTicker actors slot
@@ -166,18 +160,16 @@ tests = testGroup "Integration.Devnet"
         stopNode actors
 
   , testCase "sync then gossip: sync history then follow live blocks" $ do
-      let vals = [mkTestValidator 1]
+      let vals = [mkTestValidator 1 0]
           gs = mkTestGenesisState vals
           genesisBlock = mkTestGenesisBlock
 
       verifier <- setupVerifier
 
-      -- Build 5-block history
       let (blocks, states) = buildChain gs 5
           blockMap = Map.fromList
             [ (bbSlot (sbMessage sbb), encodeWire sbb) | sbb <- blocks ]
 
-      -- Sync phase
       mn <- newMockNetwork
       handle <- mockP2PHandleWithBlocks mn blockMap
       storeVar <- newTVarIO (initStore gs genesisBlock cfg)
@@ -200,7 +192,6 @@ tests = testGroup "Integration.Devnet"
       startMessageHandler env
       threadDelay 10_000
 
-      -- Build and broadcast block 6
       let st5 = last states
           sbb6 = mkTestSignedBlock st5 6
 
@@ -212,13 +203,12 @@ tests = testGroup "Integration.Devnet"
         7 (Map.size (stBlocks storeFinal))
 
   , testCase "multi-node consensus: two nodes agree on chain head" $ do
-      let vals = [mkTestValidator 1]
+      let vals = [mkTestValidator 1 0]
           gs = mkTestGenesisState vals
           genesisBlock = mkTestGenesisBlock
 
       verifier <- setupVerifier
 
-      -- Build 3 blocks
       let (blocks, _states) = buildChain gs 3
 
       mn <- newMockNetwork
@@ -242,7 +232,6 @@ tests = testGroup "Integration.Devnet"
 
       threadDelay 10_000
 
-      -- Broadcast all blocks to both nodes
       mapM_ (\sbb -> do
         broadcastAll mn TopicBeaconBlock (encodeWire sbb)
         threadDelay 50_000
@@ -251,7 +240,6 @@ tests = testGroup "Integration.Devnet"
       store1 <- readTVarIO store1Var
       store2 <- readTVarIO store2Var
 
-      -- Both nodes should have the same blocks
       assertEqual "node 1 should have 4 blocks" 4 (Map.size (stBlocks store1))
       assertEqual "node 2 should have 4 blocks" 4 (Map.size (stBlocks store2))
   ]

@@ -35,7 +35,7 @@ cfg = Config 0
 
 mkEnv :: (BeaconState -> Store -> [SignedBlock] -> [BeaconState] -> IO a) -> IO a
 mkEnv action = do
-  let vals = [mkTestValidator i | i <- [1..4]]
+  let vals = [mkTestValidator i (fromIntegral (i - 1)) | i <- [1..4]]
       gs   = mkTestGenesisState vals
       gb   = mkTestGenesisBlock
       store = initStore gs gb cfg
@@ -114,7 +114,7 @@ testPrune = mkEnv $ \gs _store blocks _states ->
 -- | 4 async threads each put+get 10 blocks, no lost writes.
 testConcurrent :: Assertion
 testConcurrent = do
-  let vals = [mkTestValidator i | i <- [1..4]]
+  let vals = [mkTestValidator i (fromIntegral (i - 1)) | i <- [1..4]]
       gs   = mkTestGenesisState vals
       gb   = mkTestGenesisBlock
       store = initStore gs gb cfg

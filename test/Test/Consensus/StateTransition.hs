@@ -33,6 +33,16 @@ zeroPubkey = case mkXmssPubkey (BS.replicate xmssPubkeySize 0) of
 zeroCheckpoint :: Checkpoint
 zeroCheckpoint = Checkpoint zeroRoot 0
 
+zeroSig :: XmssSignature
+zeroSig = case mkXmssSignature (BS.replicate xmssSignatureSize 0) of
+  Right s -> s
+  Left _  -> error "zeroSig"
+
+mkBlockSignatures :: BlockSignatures
+mkBlockSignatures =
+  let emptyAttSigs = forceRight $ mkSszList @MAX_ATTESTATION_SIGNATURES []
+  in  BlockSignatures emptyAttSigs zeroSig
+
 mkValidator :: ValidatorIndex -> Validator
 mkValidator idx = Validator
   { vAttestationPubkey = zeroPubkey
@@ -77,13 +87,28 @@ mkGenesisState vals =
     , bsJustificationsValidators  = emptyJustVals
     }
 
+mkEmptyBody :: BeaconBlockBody
+mkEmptyBody = BeaconBlockBody
+  { bbbAttestations = forceRight $ mkSszList @MAX_ATTESTATIONS [] }
+
+forceRight :: Either e a -> a
+forceRight (Right a) = a
+forceRight (Left _)  = error "forceRight: unexpected Left"
+
 -- ---------------------------------------------------------------------------
 -- Tests
 -- ---------------------------------------------------------------------------
 
 tests :: TestTree
 tests = testGroup "Consensus.StateTransition"
-  [ testGroup "processSlots"
+  [ testGroup "isActiveValidator"
+      [ testCase "always active in leanSpec" $ do
+          let v = mkValidator 0
+          isActiveValidator v 0 @?= True
+          isActiveValidator v 50 @?= True
+          isActiveValidator v maxBound @?= True
+      ]
+  , testGroup "processSlots"
       [ testCase "no-op when target equals current" $ do
           let bs = mkGenesisState [mkValidator 0]
           processSlots bs 0 @?= Right bs
@@ -113,6 +138,13 @@ tests = testGroup "Consensus.StateTransition"
               bs1 = processSlot bs
               hashes = unSszList (bsHistoricalBlockHashes bs1)
           length hashes @?= 1
+      , testCase "accumulates historical block hashes over multiple slots" $ do
+          let bs = mkGenesisState [mkValidator 0]
+          case processSlots bs 3 of
+            Right bs3 -> do
+              let hashes = unSszList (bsHistoricalBlockHashes bs3)
+              length hashes @?= 3
+            Left err -> assertFailure $ show err
       ]
   , testGroup "processBlockHeader"
       [ testCase "valid block header" $ do
@@ -120,29 +152,19 @@ tests = testGroup "Consensus.StateTransition"
               bs = mkGenesisState vals
               bs1 = processSlot bs  -- advance to slot 1
               parentRoot = toRoot (bsLatestBlockHeader bs1)
-              emptyBody = BeaconBlockBody
-                { bbbAttestations = case mkSszList @MAX_ATTESTATIONS [] of
-                    Right sl -> sl
-                    Left _   -> error "mkSszList"
-                }
               block = BeaconBlock
                 { bbSlot          = 1
                 , bbProposerIndex = getProposerIndex bs1
                 , bbParentRoot    = parentRoot
                 , bbStateRoot     = zeroRoot
-                , bbBody          = emptyBody
+                , bbBody          = mkEmptyBody
                 }
           case processBlockHeader bs1 block of
             Right bs2 -> bbhSlot (bsLatestBlockHeader bs2) @?= 1
             Left err  -> assertFailure $ show err
       , testCase "rejects wrong slot" $ do
           let bs = mkGenesisState [mkValidator 0]
-              emptyBody = BeaconBlockBody
-                { bbbAttestations = case mkSszList @MAX_ATTESTATIONS [] of
-                    Right sl -> sl
-                    Left _   -> error "mkSszList"
-                }
-              block = BeaconBlock 5 0 zeroRoot zeroRoot emptyBody
+              block = BeaconBlock 5 0 zeroRoot zeroRoot mkEmptyBody
           case processBlockHeader bs block of
             Left (InvalidSlot 5 0) -> pure ()
             other -> assertFailure $ "Expected InvalidSlot, got: " ++ show other
@@ -162,6 +184,33 @@ tests = testGroup "Consensus.StateTransition"
           getProposerIndex bs0 @?= 0
           getProposerIndex bs1 @?= 1
           getProposerIndex bs2 @?= 2
+      , testCase "all validators always active in leanSpec" $ do
+          let vals = [ mkValidator 0
+                     , mkValidatorWithPubkey 2 1
+                     ]
+              bs = mkGenesisState vals
+          -- slot 0 mod 2 == 0, so validator 0 is proposer
+          getProposerIndex bs @?= 0
+      ]
+  , testGroup "stateTransition"
+      [ testCase "advances slot and updates header" $ do
+          let vals = [mkValidatorWithPubkey 1 0]
+              bs = mkGenesisState vals
+              bs1 = processSlot bs
+              parentRoot = toRoot (bsLatestBlockHeader bs1)
+              block = BeaconBlock
+                { bbSlot          = 1
+                , bbProposerIndex = getProposerIndex bs1
+                , bbParentRoot    = parentRoot
+                , bbStateRoot     = zeroRoot
+                , bbBody          = mkEmptyBody
+                }
+              signedBlock = SignedBlock block mkBlockSignatures
+          case stateTransition bs signedBlock False of
+            Right postState -> do
+              bsSlot postState @?= 1
+              bbhSlot (bsLatestBlockHeader postState) @?= 1
+            Left err -> assertFailure $ "State transition failed: " ++ show err
       ]
   , testGroup "processAttestation"
       [ testCase "valid attestation passes" $ do
@@ -188,5 +237,34 @@ tests = testGroup "Consensus.StateTransition"
           case processAttestation bs1 aa of
             Left (InvalidAttestationSlot 1 1) -> pure ()
             other -> assertFailure $ "Expected InvalidAttestationSlot, got: " ++ show other
+      , testCase "accepts valid past-slot attestation" $ do
+          let vals = [mkValidatorWithPubkey 1 0]
+              bs = (mkGenesisState vals) { bsSlot = 2 }
+              bits = forceRight $ mkBitlist @VALIDATOR_REGISTRY_LIMIT [True]
+              att = AggregatedAttestation
+                { aaData = AttestationData 1 zeroCheckpoint zeroCheckpoint zeroCheckpoint
+                , aaAggregationBits = bits
+                }
+          case processAttestation bs att of
+            Right _ -> pure ()
+            Left err -> assertFailure $ "Expected success, got: " ++ show err
+      , testCase "rejects future-slot attestation" $ do
+          let vals = [mkValidatorWithPubkey 1 0]
+              bs = (mkGenesisState vals) { bsSlot = 1 }
+              bits = forceRight $ mkBitlist @VALIDATOR_REGISTRY_LIMIT [True]
+              att = AggregatedAttestation
+                { aaData = AttestationData 5 zeroCheckpoint zeroCheckpoint zeroCheckpoint
+                , aaAggregationBits = bits
+                }
+          case processAttestation bs att of
+            Left (InvalidAttestationSlot 5 1) -> pure ()
+            other -> assertFailure $ "Expected InvalidAttestationSlot, got: " ++ show other
+      ]
+  , testGroup "processJustificationFinalization"
+      [ testCase "no justification with no votes" $ do
+          let vals = [mkValidatorWithPubkey 1 0]
+              bs = mkGenesisState vals
+              bs' = processJustificationFinalization bs
+          bsLatestJustified bs' @?= zeroCheckpoint
       ]
   ]

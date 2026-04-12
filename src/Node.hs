@@ -134,11 +134,9 @@ blockchainLoop storage queue = go
               atomically $ writeForkChoiceStore storage store'
           go
 
-        BcNewAttestation att -> do
-          store <- atomically $ readForkChoiceStore storage
-          case onAttestation store att of
-            Left _err    -> pure ()
-            Right store' -> atomically $ writeForkChoiceStore storage store'
+        BcNewAttestation _att -> do
+          -- In leanSpec, individual attestations are not processed by the store.
+          -- Attestation data is extracted from blocks during onBlock.
           go
 
         BcNewAggregation _agg -> do
@@ -168,7 +166,7 @@ findValidatorIndex :: GenesisConfig -> XmssPubkey -> ValidatorIndex
 findValidatorIndex gc pubKey =
   case [ fromIntegral i :: ValidatorIndex
        | (i, gv) <- zip [(0 :: Int)..] (gcValidators gc)
-       , gvAttestationPubkey gv == pubKey
+       , gvAttestationPubkey gv == pubKey || gvProposalPubkey gv == pubKey
        ] of
     (idx : _) -> idx
     []        -> 0

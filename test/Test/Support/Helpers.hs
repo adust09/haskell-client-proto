@@ -17,6 +17,7 @@ module Test.Support.Helpers
   , zeroSig
   , zeroBlockSignatures
   , mkEmptyBody
+  , mkBlockSignatures
   , toRoot
   ) where
 
@@ -63,16 +64,19 @@ zeroSig = case mkXmssSignature (BS.replicate xmssSignatureSize 0) of
 -- | Empty block signatures for testing.
 zeroBlockSignatures :: BlockSignatures
 zeroBlockSignatures = BlockSignatures
-  { bsigAttestationSignatures = forceRight $ mkSszList @MAX_ATTESTATIONS []
+  { bsigAttestationSignatures = forceRight $ mkSszList @MAX_ATTESTATION_SIGNATURES []
   , bsigProposerSignature = zeroSig
   }
 
-mkTestValidator :: Word8 -> Validator
-mkTestValidator w =
+mkBlockSignatures :: BlockSignatures
+mkBlockSignatures = zeroBlockSignatures
+
+mkTestValidator :: Word8 -> ValidatorIndex -> Validator
+mkTestValidator w idx =
   let pk = case mkXmssPubkey (BS.replicate xmssPubkeySize w) of
              Right p -> p
              Left _  -> error "mkTestValidator"
-  in  Validator pk pk (fromIntegral w)
+  in  Validator pk pk idx
 
 -- | Create a validator with a real Ed25519-backed key pair for signing tests.
 -- Returns (PrivateKey, Validator).

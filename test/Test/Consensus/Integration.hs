@@ -43,7 +43,7 @@ zeroSig = case mkXmssSignature (BS.replicate xmssSignatureSize 0) of
 
 zeroBlockSignatures :: BlockSignatures
 zeroBlockSignatures = BlockSignatures
-  { bsigAttestationSignatures = case mkSszList @MAX_ATTESTATIONS [] of
+  { bsigAttestationSignatures = case mkSszList @MAX_ATTESTATION_SIGNATURES [] of
       Right sl -> sl
       Left _   -> error "zeroBlockSignatures"
   , bsigProposerSignature = zeroSig
@@ -81,10 +81,11 @@ mkGenesisState vals =
 
 mkEmptyBody :: BeaconBlockBody
 mkEmptyBody = BeaconBlockBody
-  { bbbAttestations = case mkSszList @MAX_ATTESTATIONS [] of
-      Right sl -> sl
-      Left _   -> error "mkEmptyBody"
-  }
+  { bbbAttestations = forceRight $ mkSszList @MAX_ATTESTATIONS [] }
+
+forceRight :: Either e a -> a
+forceRight (Right a) = a
+forceRight (Left _)  = error "forceRight: unexpected Left"
 
 cfg :: Config
 cfg = Config 0
@@ -124,10 +125,5 @@ tests = testGroup "Consensus.Integration"
           store = initStore gs genesisBlock cfg
           genesisRoot = toRoot genesisBlock
 
-      -- The genesis block is the only head
       getHead store @?= genesisRoot
-
-  -- TODO: Port leanSpec state transition vectors and ethlambda fork choice
-  -- test cases once available. For now, hand-written scenarios with explicit
-  -- assertions on checkpoint values.
   ]

@@ -9,16 +9,17 @@ module Consensus.Types
   , mkXmssSignature
   , XmssPubkey (..)
   , mkXmssPubkey
-    -- * Config
-  , Config (..)
+  , LeanMultisigProof (..)
+    -- * Aggregation types
+  , AggregationBits
     -- * Core types
+  , Config (..)
   , Checkpoint (..)
   , AttestationData (..)
   , SignedAttestation (..)
-  , AggregationBits
-  , AggregatedSignatureProof (..)
   , AggregatedAttestation (..)
   , SignedAggregatedAttestation (..)
+  , AggregatedSignatureProof (..)
   , BeaconBlockBody (..)
   , BeaconBlock (..)
   , BlockSignatures (..)
@@ -29,19 +30,20 @@ module Consensus.Types
     -- * Fork choice (non-SSZ)
   , Store (..)
   , LatestMessage (..)
+  , currentSlot
   ) where
 
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
 import Data.Map.Strict (Map)
-import Data.Word (Word8, Word64)
+import Data.Word (Word64)
 import GHC.Generics (Generic, Rep)
 import SSZ.Bitlist (Bitlist)
 import SSZ.Common
 import SSZ.Container ()
 import SSZ.Derive
 import SSZ.List (SszList)
-import SSZ.Merkleization (SszHashTreeRoot (..))
+import SSZ.Merkleization (SszHashTreeRoot (..), merkleize, mixInLength, pack)
 import Consensus.Constants
 
 -- ---------------------------------------------------------------------------
@@ -95,6 +97,32 @@ instance SszHashTreeRoot XmssPubkey where
     case mkBytesN @52 bs of
       Right bn -> hashTreeRoot bn
       Left _   -> error "XmssPubkey: invalid length"
+
+-- | ZK proof from leanMultisig aggregation (variable-size).
+newtype LeanMultisigProof = LeanMultisigProof { unLeanMultisigProof :: ByteString }
+  deriving stock (Eq, Show)
+
+instance Ssz LeanMultisigProof where
+  sszFixedSize = Nothing
+
+instance SszEncode LeanMultisigProof where
+  sszEncode = unLeanMultisigProof
+
+instance SszDecode LeanMultisigProof where
+  sszDecode = Right . LeanMultisigProof
+
+-- | Max capacity for LeanMultisigProof in bytes (32KB).
+leanMultisigProofMaxSize :: Int
+leanMultisigProofMaxSize = 32768
+
+instance SszHashTreeRoot LeanMultisigProof where
+  hashTreeRoot (LeanMultisigProof bs) =
+    let chunks = pack [bs]
+        limit  = max 1 (fromIntegral ((leanMultisigProofMaxSize + 31) `div` 32))
+    in  mixInLength (merkleize chunks limit) (fromIntegral (BS.length bs))
+
+-- | Aggregation bits: global-scope bitlist (VALIDATOR_REGISTRY_LIMIT).
+type AggregationBits = Bitlist VALIDATOR_REGISTRY_LIMIT
 
 -- ---------------------------------------------------------------------------
 -- Config (leanSpec: Config container)
@@ -167,27 +195,7 @@ instance SszDecode SignedAttestation where
 instance SszHashTreeRoot SignedAttestation where
   hashTreeRoot = genericHashTreeRoot
 
--- | leanSpec: AggregationBits = Bitlist[VALIDATOR_REGISTRY_LIMIT].
--- Global scope (not subnet-scoped).
-type AggregationBits = Bitlist VALIDATOR_REGISTRY_LIMIT
-
--- | leanSpec: AggregatedSignatureProof(participants: AggregationBits, proof_data: ByteListMiB).
-data AggregatedSignatureProof = AggregatedSignatureProof
-  { aspParticipants :: !AggregationBits
-  , aspProofData    :: !(SszList BYTE_LIST_MIB Word8)
-  } deriving stock (Generic, Eq, Show)
-
-instance Ssz AggregatedSignatureProof where
-  sszFixedSize = genericSszFixedSize @(Rep AggregatedSignatureProof)
-instance SszEncode AggregatedSignatureProof where
-  sszEncode = genericSszEncode
-instance SszDecode AggregatedSignatureProof where
-  sszDecode = genericSszDecode
-instance SszHashTreeRoot AggregatedSignatureProof where
-  hashTreeRoot = genericHashTreeRoot
-
--- | leanSpec: AggregatedAttestation(aggregation_bits: AggregationBits, data: AttestationData).
--- Unsigned aggregated attestation.
+-- | Unsigned aggregated attestation (leanSpec: aggregation_bits first, then data).
 data AggregatedAttestation = AggregatedAttestation
   { aaAggregationBits :: !AggregationBits
   , aaData            :: !AttestationData
@@ -202,9 +210,23 @@ instance SszDecode AggregatedAttestation where
 instance SszHashTreeRoot AggregatedAttestation where
   hashTreeRoot = genericHashTreeRoot
 
--- | leanSpec: SignedAggregatedAttestation(data: AttestationData, proof: AggregatedSignatureProof).
+-- | Aggregated signature proof (leanSpec: BlockSignatures.attestation_signatures element).
+data AggregatedSignatureProof = AggregatedSignatureProof
+  { aspProof :: !LeanMultisigProof
+  } deriving stock (Generic, Eq, Show)
+
+instance Ssz AggregatedSignatureProof where
+  sszFixedSize = genericSszFixedSize @(Rep AggregatedSignatureProof)
+instance SszEncode AggregatedSignatureProof where
+  sszEncode = genericSszEncode
+instance SszDecode AggregatedSignatureProof where
+  sszDecode = genericSszDecode
+instance SszHashTreeRoot AggregatedSignatureProof where
+  hashTreeRoot = genericHashTreeRoot
+
+-- | Signed aggregated attestation (leanSpec: contains data + proof).
 data SignedAggregatedAttestation = SignedAggregatedAttestation
-  { saaData  :: !AttestationData
+  { saaData  :: !AggregatedAttestation
   , saaProof :: !AggregatedSignatureProof
   } deriving stock (Generic, Eq, Show)
 
@@ -217,7 +239,7 @@ instance SszDecode SignedAggregatedAttestation where
 instance SszHashTreeRoot SignedAggregatedAttestation where
   hashTreeRoot = genericHashTreeRoot
 
--- | leanSpec: BlockBody(attestations: List[AggregatedAttestation, MAX_ATTESTATIONS]).
+-- | Block body: contains unsigned attestations (leanSpec aligned).
 data BeaconBlockBody = BeaconBlockBody
   { bbbAttestations :: !(SszList MAX_ATTESTATIONS AggregatedAttestation)
   } deriving stock (Generic, Eq, Show)
@@ -249,9 +271,9 @@ instance SszDecode BeaconBlock where
 instance SszHashTreeRoot BeaconBlock where
   hashTreeRoot = genericHashTreeRoot
 
--- | leanSpec: BlockSignatures(attestation_signatures: List[AggregatedSignatureProof], proposer_signature: Signature).
+-- | Block signatures container (leanSpec: BlockSignatures).
 data BlockSignatures = BlockSignatures
-  { bsigAttestationSignatures :: !(SszList MAX_ATTESTATIONS AggregatedSignatureProof)
+  { bsigAttestationSignatures :: !(SszList MAX_ATTESTATION_SIGNATURES AggregatedSignatureProof)
   , bsigProposerSignature     :: !XmssSignature
   } deriving stock (Generic, Eq, Show)
 
@@ -313,18 +335,18 @@ instance SszDecode Validator where
 instance SszHashTreeRoot Validator where
   hashTreeRoot = genericHashTreeRoot
 
--- | leanSpec: State (10 fields, exact SSZ order).
+-- | Beacon state (leanSpec 10-field model).
 data BeaconState = BeaconState
-  { bsConfig                    :: !Config
-  , bsSlot                      :: !Slot
-  , bsLatestBlockHeader         :: !BeaconBlockHeader
-  , bsLatestJustified           :: !Checkpoint
-  , bsLatestFinalized           :: !Checkpoint
-  , bsHistoricalBlockHashes     :: !(SszList HISTORICAL_ROOTS_LIMIT Root)
-  , bsJustifiedSlots            :: !(Bitlist HISTORICAL_ROOTS_LIMIT)
-  , bsValidators                :: !(SszList VALIDATOR_REGISTRY_LIMIT Validator)
-  , bsJustificationsRoots       :: !(SszList HISTORICAL_ROOTS_LIMIT Root)
-  , bsJustificationsValidators  :: !(Bitlist 1073741824)
+  { bsConfig                   :: !Config
+  , bsSlot                     :: !Slot
+  , bsLatestBlockHeader        :: !BeaconBlockHeader
+  , bsLatestJustified          :: !Checkpoint
+  , bsLatestFinalized          :: !Checkpoint
+  , bsHistoricalBlockHashes    :: !(SszList HISTORICAL_BLOCK_HASHES_LIMIT Root)
+  , bsJustifiedSlots           :: !(Bitlist JUSTIFIED_SLOTS_LIMIT)
+  , bsValidators               :: !(SszList VALIDATORS_LIMIT Validator)
+  , bsJustificationsRoots      :: !(SszList JUSTIFICATIONS_ROOTS_LIMIT Root)
+  , bsJustificationsValidators :: !(Bitlist JUSTIFICATIONS_VALIDATORS_LIMIT)
   } deriving stock (Generic, Eq, Show)
 
 -- 1073741824 = 262144 * 4096 = HISTORICAL_ROOTS_LIMIT * VALIDATOR_REGISTRY_LIMIT
@@ -344,19 +366,29 @@ instance SszHashTreeRoot BeaconState where
 
 -- | leanSpec Store (simplified for current implementation).
 data Store = Store
-  { stTime                        :: !Interval
-  , stConfig                      :: !Config
-  , stJustifiedCheckpoint         :: !Checkpoint
-  , stFinalizedCheckpoint         :: !Checkpoint
-  , stHead                        :: !Root
-  , stSafeTarget                  :: !Checkpoint
-  , stBlocks                      :: !(Map Root BeaconBlock)
-  , stBlockStates                 :: !(Map Root BeaconState)
-  , stLatestMessages              :: !(Map ValidatorIndex LatestMessage)
-  , stAttestationSignatures       :: !(SszList MAX_ATTESTATIONS AggregatedSignatureProof)
+  { stTime                  :: !Word64
+  , stConfig                :: !Config
+  , stHead                  :: !Checkpoint
+  , stSafeTarget            :: !Checkpoint
+  , stJustifiedCheckpoint   :: !Checkpoint
+  , stFinalizedCheckpoint   :: !Checkpoint
+  , stValidatorId           :: !ValidatorIndex
+  , stAttestationSignatures :: !(Map Slot AggregatedSignatureProof)
+  , stBlocks                :: !(Map Root BeaconBlock)
+  , stBlockStates           :: !(Map Root BeaconState)
+  , stLatestMessages        :: !(Map ValidatorIndex LatestMessage)
   } deriving stock (Eq, Show)
 
 data LatestMessage = LatestMessage
   { lmSlot :: !Slot
   , lmRoot :: !Root
   } deriving stock (Eq, Show)
+
+-- | Derive current slot from store time and genesis time.
+currentSlot :: Store -> Slot
+currentSlot store =
+  let genesis = cfgGenesisTime (stConfig store)
+      slotSec = slotDuration `div` 1_000_000
+  in  if stTime store >= genesis
+        then (stTime store - genesis) `div` fromIntegral slotSec
+        else 0

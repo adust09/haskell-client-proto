@@ -63,7 +63,7 @@ seenCacheTests = testGroup "SeenCache"
 blockValidationTests :: TestTree
 blockValidationTests = testGroup "Block validation"
   [ testCase "valid block is accepted" $ do
-      let vals = [mkTestValidator 1]
+      let vals = [mkTestValidator 1 0]
           gs = mkTestGenesisState vals
           store = initStore gs mkTestGenesisBlock cfg
           sbb = mkTestSignedBlock gs 1
@@ -71,14 +71,14 @@ blockValidationTests = testGroup "Block validation"
       validateBlock store1 sbb 1 @?= Accept
 
   , testCase "future block is rejected" $ do
-      let vals = [mkTestValidator 1]
+      let vals = [mkTestValidator 1 0]
           gs = mkTestGenesisState vals
           store = initStore gs mkTestGenesisBlock cfg
       let farBlock = SignedBlock (BeaconBlock 100 0 zeroRoot zeroRoot mkEmptyBody) zeroBlockSignatures
       validateBlock store farBlock 0 @?= Reject
 
   , testCase "orphan block is ignored" $ do
-      let vals = [mkTestValidator 1]
+      let vals = [mkTestValidator 1 0]
           gs = mkTestGenesisState vals
           store = initStore gs mkTestGenesisBlock cfg
           orphanParent = case mkBytesN @32 (BS.replicate 32 0xFF) of
@@ -96,7 +96,7 @@ blockValidationTests = testGroup "Block validation"
 attestationValidationTests :: TestTree
 attestationValidationTests = testGroup "Attestation validation"
   [ testCase "valid attestation is accepted" $ do
-      let vals = [mkTestValidator 1]
+      let vals = [mkTestValidator 1 0]
           gs = mkTestGenesisState vals
           genesisBlock = mkTestGenesisBlock
           store = initStore gs genesisBlock cfg
@@ -106,7 +106,7 @@ attestationValidationTests = testGroup "Attestation validation"
       validateAttestation (store { stTime = 5 }) att 0 1 @?= Accept
 
   , testCase "future attestation is rejected" $ do
-      let vals = [mkTestValidator 1]
+      let vals = [mkTestValidator 1 0]
           gs = mkTestGenesisState vals
           store = initStore gs mkTestGenesisBlock cfg
           headCp = Checkpoint zeroRoot 10
@@ -114,7 +114,7 @@ attestationValidationTests = testGroup "Attestation validation"
       validateAttestation store att 0 0 @?= Reject
 
   , testCase "old attestation is ignored" $ do
-      let vals = [mkTestValidator 1]
+      let vals = [mkTestValidator 1 0]
           gs = mkTestGenesisState vals
           store = initStore gs mkTestGenesisBlock cfg
           headCp = Checkpoint zeroRoot 0

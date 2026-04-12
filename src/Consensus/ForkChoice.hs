@@ -6,6 +6,7 @@ module Consensus.ForkChoice
     -- * Store operations
   , initStore
   , onBlock
+  , onTick
   , onAttestation
     -- * Head selection
   , getHead
@@ -17,12 +18,12 @@ module Consensus.ForkChoice
 import qualified Data.Map.Strict as Map
 import Data.List (maximumBy)
 import Data.Ord (comparing, Down (..))
+import Data.Word (Word64)
 
 import Consensus.Constants
 import Consensus.Types
 import Consensus.StateTransition (stateTransition)
 import SSZ.Common (mkBytesN, unBytesN)
-import SSZ.List (mkSszList)
 import SSZ.Merkleization (SszHashTreeRoot (..))
 
 -- ---------------------------------------------------------------------------
@@ -36,7 +37,6 @@ data ForkChoiceError
   | ParentStateNotFound
   | StateTransitionFailed String
   | AttestationSlotInFuture Slot Slot
-  | AttestationTargetNotFound
   deriving stock (Eq, Show)
 
 -- ---------------------------------------------------------------------------
@@ -48,23 +48,31 @@ initStore :: BeaconState -> BeaconBlock -> Config -> Store
 initStore genesisState genesisBlock cfg =
   let blockRoot = toRoot genesisBlock
       checkpoint = Checkpoint blockRoot 0
-      emptyAttSigs = forceRight $ mkSszList @MAX_ATTESTATIONS []
   in  Store
     { stTime                  = 0
     , stConfig                = cfg
+    , stHead                  = checkpoint
+    , stSafeTarget            = checkpoint
     , stJustifiedCheckpoint   = checkpoint
     , stFinalizedCheckpoint   = checkpoint
-    , stHead                  = blockRoot
-    , stSafeTarget            = checkpoint
+    , stValidatorId           = 0
+    , stAttestationSignatures = Map.empty
     , stBlocks                = Map.singleton blockRoot genesisBlock
     , stBlockStates           = Map.singleton blockRoot genesisState
     , stLatestMessages        = Map.empty
-    , stAttestationSignatures = emptyAttSigs
     }
 
 -- | Get the current slot from the store (derived from time).
 storeCurrentSlot :: Store -> Slot
-storeCurrentSlot store = stTime store `div` 5  -- INTERVALS_PER_SLOT = 5
+storeCurrentSlot = currentSlot
+
+-- ---------------------------------------------------------------------------
+-- Tick processing
+-- ---------------------------------------------------------------------------
+
+-- | Advance store time (interval-based tick).
+onTick :: Store -> Word64 -> Store
+onTick store newTime = store { stTime = newTime }
 
 -- ---------------------------------------------------------------------------
 -- Block processing
@@ -76,46 +84,39 @@ onBlock store signedBlock = do
   let block = sbMessage signedBlock
       blockSlot = bbSlot block
       parentRoot = bbParentRoot block
-      currentSlot = storeCurrentSlot store
+      curSlot = storeCurrentSlot store
 
-  -- Slot bounds
-  if blockSlot > currentSlot
-    then Left (BlockSlotInFuture blockSlot currentSlot)
+  if blockSlot > curSlot
+    then Left (BlockSlotInFuture blockSlot curSlot)
     else Right ()
 
-  -- Block must not be older than finalized checkpoint
   if blockSlot < cpSlot (stFinalizedCheckpoint store)
     then Left (BlockSlotTooOld blockSlot (cpSlot (stFinalizedCheckpoint store)))
     else Right ()
 
-  -- Parent must exist
   if not (Map.member parentRoot (stBlocks store))
     then Left OrphanBlock
     else Right ()
 
-  -- Get parent state
   parentState <- case Map.lookup parentRoot (stBlockStates store) of
     Nothing -> Left ParentStateNotFound
     Just s  -> Right s
 
-  -- Run state transition
   postState <- case stateTransition parentState signedBlock False of
     Left err -> Left (StateTransitionFailed (show err))
     Right s  -> Right s
 
   let blockRoot = toRoot block
 
-  -- Update store with block and state
   let store1 = store
         { stBlocks      = Map.insert blockRoot block (stBlocks store)
         , stBlockStates = Map.insert blockRoot postState (stBlockStates store)
         }
 
-  -- Update justified/finalized checkpoints from post-state
   let store2 = updateCheckpoints store1 postState
 
-  -- Update head
-  let newHead = computeHead store2
+  -- Update head after processing block
+  let newHead = recomputeHead store2
       store3 = store2 { stHead = newHead }
 
   Right store3
@@ -143,10 +144,10 @@ onAttestation store sa = do
   let ad = saData sa
       attSlot = adSlot ad
       vi = saValidatorIndex sa
-      currentSlot = storeCurrentSlot store
+      curSlot = storeCurrentSlot store
 
-  if attSlot > currentSlot
-    then Left (AttestationSlotInFuture attSlot currentSlot)
+  if attSlot > curSlot
+    then Left (AttestationSlotInFuture attSlot curSlot)
     else Right ()
 
   -- Update latest message
@@ -170,15 +171,17 @@ updateLatestMessage store vi slot root =
 -- Head selection
 -- ---------------------------------------------------------------------------
 
+-- | Recompute head checkpoint from current store state.
+recomputeHead :: Store -> Checkpoint
+recomputeHead store =
+  let headRoot = walkHead store (cpRoot (stJustifiedCheckpoint store))
+  in  case Map.lookup headRoot (stBlocks store) of
+        Just block -> Checkpoint headRoot (bbSlot block)
+        Nothing    -> Checkpoint headRoot 0
+
 -- | Deterministic head selection via greedy heaviest observed subtree.
 getHead :: Store -> Root
-getHead = stHead
-
--- | Compute head by walking from justified root.
-computeHead :: Store -> Root
-computeHead store =
-  let startRoot = cpRoot (stJustifiedCheckpoint store)
-  in  walkHead store startRoot
+getHead store = cpRoot (stHead store)
 
 walkHead :: Store -> Root -> Root
 walkHead store current =
@@ -221,7 +224,7 @@ getAncestor store root targetSlot =
       | bbSlot block < targetSlot  -> Nothing
       | otherwise                  -> getAncestor store (bbParentRoot block) targetSlot
 
--- | Check if `descendant` is a descendant of `ancestor`.
+-- | Check if @descendant@ is a descendant of @ancestor@.
 isDescendant :: Store -> Root -> Root -> Bool
 isDescendant store ancestor descendant
   | ancestor == descendant = True
@@ -238,7 +241,3 @@ toRoot :: SszHashTreeRoot a => a -> Root
 toRoot a = case mkBytesN @32 (hashTreeRoot a) of
   Right r -> r
   Left _  -> error "toRoot: hashTreeRoot did not produce 32 bytes"
-
-forceRight :: Either e a -> a
-forceRight (Right a) = a
-forceRight (Left _)  = error "forceRight: unexpected Left"
