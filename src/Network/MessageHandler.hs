@@ -27,7 +27,6 @@ import qualified Data.Sequence as Seq
 
 import Consensus.Constants (Slot, SubnetId)
 import Consensus.ForkChoice (onBlock, onAttestation)
-import Consensus.StateTransition (getAttestationSubnet, isActiveValidator)
 import Consensus.Types
 import Crypto.Hashing (sha256)
 import Crypto.LeanMultisig (VerifierContext)
@@ -42,7 +41,7 @@ import SSZ.List (unSszList)
 
 -- | Decoded gossip message variants.
 data GossipMessage
-  = GossipBlock !SignedBeaconBlock
+  = GossipBlock !SignedBlock
   | GossipAttestation !SignedAttestation !SubnetId
   | GossipAggregation !SignedAggregatedAttestation
   deriving stock (Show)
@@ -95,35 +94,31 @@ evictOldest cache =
 -- ---------------------------------------------------------------------------
 
 -- | Validate a gossiped block against the current store.
-validateBlock :: Store -> SignedBeaconBlock -> Slot -> ValidationResult
-validateBlock store sbb currentSlot =
-  let block = sbbBlock sbb
+validateBlock :: Store -> SignedBlock -> Slot -> ValidationResult
+validateBlock store sb currentSlot =
+  let block = sbMessage sb
       blockSlot = bbSlot block
       parentRoot = bbParentRoot block
   in  if blockSlot > currentSlot + 1
         then Reject
         else if not (Map.member parentRoot (stBlocks store))
           then Ignore
-          else case onBlock (store { stCurrentSlot = max currentSlot (stCurrentSlot store) }) sbb of
+          else case onBlock store sb of
             Left _  -> Reject
             Right _ -> Accept
 
 -- | Validate a gossiped individual attestation.
 validateAttestation :: Store -> SignedAttestation -> SubnetId -> Slot -> ValidationResult
-validateAttestation store sa expectedSubnet currentSlot =
+validateAttestation store sa _expectedSubnet currentSlot =
   let ad = saData sa
       attSlot = adSlot ad
-      vi = saValidatorIndex sa
-      actualSubnet = getAttestationSubnet vi
-  in  if actualSubnet /= expectedSubnet
+  in  if attSlot > currentSlot
         then Reject
-        else if attSlot > currentSlot
-          then Reject
-          else if attSlot + 4 < currentSlot  -- too old
-            then Ignore
-            else case onAttestation (store { stCurrentSlot = max currentSlot (stCurrentSlot store) }) sa of
-              Left _  -> Reject
-              Right _ -> Accept
+        else if attSlot + 4 < currentSlot
+          then Ignore
+          else case onAttestation store sa of
+            Left _  -> Reject
+            Right _ -> Accept
 
 -- | Validate a gossiped aggregated attestation (requires IO for multisig verify).
 validateAggregation :: VerifierContext -> Store -> SignedAggregatedAttestation -> Slot
@@ -136,13 +131,12 @@ validateAggregation verifier store saa currentSlot = do
     else if attSlot + 4 < currentSlot
       then pure Ignore
       else do
-        -- Get pubkeys for the aggregation bits
         let justRoot = cpRoot (stJustifiedCheckpoint store)
         case Map.lookup justRoot (stBlockStates store) of
           Nothing -> pure Ignore
           Just bs -> do
             let validators = unSszList (bsValidators bs)
-                pubkeys = [ vPubkey v | v <- validators, isActiveValidator v (bsSlot bs) ]
+                pubkeys = [ vAttestationPubkey v | v <- validators ]
                 domain = cpRoot (stFinalizedCheckpoint store)
             result <- verifyAggregatedAttestation verifier saa pubkeys domain
             pure $ case result of
@@ -191,13 +185,13 @@ handleBlockMessage env raw = do
     then pure ()
     else case decodeWire raw of
       Left _ -> pure ()
-      Right sbb -> do
+      Right sb -> do
         store <- readTVarIO (mhStore env)
         slot <- readTVarIO (mhCurrentSlot env)
-        case validateBlock store sbb slot of
+        case validateBlock store sb slot of
           Accept -> atomically $ do
             s <- readTVar (mhStore env)
-            case onBlock (s { stCurrentSlot = slot }) sbb of
+            case onBlock s sb of
               Right s' -> writeTVar (mhStore env) s'
               Left _   -> pure ()
           _ -> pure ()
@@ -219,7 +213,7 @@ handleAttestationMessage env subnetId raw = do
         case validateAttestation store sa subnetId slot of
           Accept -> atomically $ do
             s <- readTVar (mhStore env)
-            case onAttestation (s { stCurrentSlot = slot }) sa of
+            case onAttestation s sa of
               Right s' -> writeTVar (mhStore env) s'
               Left _   -> pure ()
           _ -> pure ()
@@ -240,5 +234,5 @@ handleAggregationMessage env raw = do
         slot <- readTVarIO (mhCurrentSlot env)
         result <- validateAggregation (mhVerifier env) store saa slot
         case result of
-          Accept -> pure ()  -- aggregations are consumed by proposer, not fed into fork choice directly
+          Accept -> pure ()
           _      -> pure ()

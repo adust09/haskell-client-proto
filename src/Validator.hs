@@ -16,14 +16,13 @@ import Consensus.Types
     , BeaconBlockBody (..)
     , BeaconState (..)
     , Checkpoint (..)
-    , SignedAggregatedAttestation (..)
     , Store
     )
 import Crypto.KeyManager (ManagedKey)
 import Crypto.Operations (signBlock, signAttestation)
 import NodeTypes (BlockchainMsg (..), P2PMsg (..), ValidatorMsg (..))
 import SSZ.Common (mkBytesN, zeroN)
-import SSZ.List (mkSszList, unSszList)
+import SSZ.List (mkSszList)
 import SSZ.Merkleization (SszHashTreeRoot (..))
 import Storage (StorageHandle, readCurrentState, readForkChoiceStore)
 
@@ -73,16 +72,9 @@ handleSlotDuties env slot = do
 proposeBlock :: ValidatorEnv -> BeaconState -> Store -> Slot -> IO ()
 proposeBlock env state _store slot = do
   let parentRoot = toRoot (bsLatestBlockHeader state)
-      pendingAtts = unSszList (bsCurrentAttestations state)
 
-  -- Filter attestations: only include those from recent slots
-  let recentAtts = take 128 $ filter
-        (\saa -> adSlot (saaData saa) + 3 >= slot && adSlot (saaData saa) < slot)
-        pendingAtts
-
-  body <- case mkSszList @128 recentAtts of
-    Left _  -> pure $ BeaconBlockBody { bbbAttestations = forceRight $ mkSszList @128 [] }
-    Right attList -> pure $ BeaconBlockBody { bbbAttestations = attList }
+  let body = BeaconBlockBody
+        { bbbAttestations = forceRight $ mkSszList [] }
 
   let block = BeaconBlock
         { bbSlot          = slot
@@ -103,14 +95,14 @@ proposeBlock env state _store slot = do
 createAttestation :: ValidatorEnv -> BeaconState -> Store -> Slot -> IO ()
 createAttestation env state store slot = do
   let headRoot = getHead store
-      source = bsJustifiedCheckpoint state
-      target = Checkpoint slot headRoot
+      source = bsLatestJustified state
+      target = Checkpoint headRoot slot
 
       attData = AttestationData
-        { adSlot             = slot
-        , adHeadRoot         = headRoot
-        , adSourceCheckpoint = source
-        , adTargetCheckpoint = target
+        { adSlot   = slot
+        , adHead   = Checkpoint headRoot slot
+        , adTarget = target
+        , adSource = source
         }
 
   result <- signAttestation

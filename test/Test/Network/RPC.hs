@@ -15,6 +15,7 @@ import Network.Wai (defaultRequest, Request (..))
 import Network.Wai.Internal (Response (..), ResponseReceived (..))
 
 import Consensus.ForkChoice (initStore)
+import Consensus.Types (Config (..))
 import Network.RPC (rpcApp)
 import Storage (StorageHandle, withStorage)
 import Test.Support.Helpers (mkTestGenesisState, mkTestGenesisBlock, mkTestValidator)
@@ -61,10 +62,10 @@ tests = testGroup "Network.RPC"
 
 withTestStorage :: (StorageHandle -> IO a) -> IO a
 withTestStorage f = do
-  let vals = [mkTestValidator 0 32000000000, mkTestValidator 1 32000000000]
+  let vals = [mkTestValidator 0, mkTestValidator 1]
       gs = mkTestGenesisState vals
       gb = mkTestGenesisBlock
-      store = initStore gs gb
+      store = initStore gs gb (Config 0)
   withStorage "/tmp/lc-test-rpc" gs store f
 
 -- | Call the RPC app with a synthetic request and capture the response.

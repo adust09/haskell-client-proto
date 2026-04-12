@@ -18,8 +18,7 @@ import Control.Concurrent.STM
 import qualified Data.Map.Strict as Map
 import Data.Map.Strict (Map)
 
-import Consensus.Constants (SubnetId, Root, Domain)
-import Consensus.StateTransition (getAttestationSubnet)
+import Consensus.Constants (Root, Domain)
 import Consensus.SlotTimer (SlotPhase (..), waitUntilPhase)
 import Consensus.Types
     ( AttestationData, SignedAttestation (..)
@@ -30,7 +29,7 @@ import Consensus.Types
 import Crypto.LeanMultisig (ProverContext)
 import Crypto.Operations (aggregateAttestations)
 import Network.P2P.Types (P2PHandle (..), Topic (..))
-import Network.P2P.Wire (encodeWire, decodeWire)
+import Network.P2P.Wire (decodeWire)
 import SSZ.List (unSszList)
 
 import Data.Time.Clock (UTCTime)
@@ -76,7 +75,6 @@ data AggregatorEnv = AggregatorEnv
   , aeProver       :: !ProverContext
   , aePool         :: !AttestationPool
   , aeGenesisTime  :: !UTCTime
-  , aeSubnets      :: ![SubnetId]
   , aeDomain       :: !Domain
   }
 
@@ -94,7 +92,7 @@ startAggregator env = do
       case decodeWire raw of
         Left _ -> pure ()
         Right sa -> atomically $ addAttestation (aePool env) sa
-    ) (aeSubnets env)
+    ) [0..3]
 
   -- Main loop: wait for ConfirmationPhase, aggregate, publish
   aggregatorLoop env
@@ -115,7 +113,7 @@ aggregatorLoop env = do
     Nothing -> pure ()
     Just bs -> do
       let validators = unSszList (bsValidators bs)
-          pubkeys = [ vPubkey v | v <- validators ]
+          pubkeys = [ vAttestationPubkey v | v <- validators ]
           domain = aeDomain env
 
       -- Aggregate each group with timeout
@@ -130,14 +128,13 @@ aggregatorLoop env = do
 aggregateAndPublish :: AggregatorEnv -> [XmssPubkey] -> Root
                     -> AttestationData -> [SignedAttestation] -> IO ()
 aggregateAndPublish env pubkeys domain _ad atts = do
-  let subnetId = case atts of
-        (sa:_) -> getAttestationSubnet (saValidatorIndex sa)
-        []     -> 0
   result <- race
     (threadDelay aggregationTimeoutUs)
-    (aggregateAttestations (aeProver env) atts pubkeys domain subnetId)
+    (aggregateAttestations (aeProver env) atts pubkeys domain)
   case result of
     Left () -> pure ()  -- timeout, skip
     Right (Left _err) -> pure ()  -- aggregation failed, skip
-    Right (Right saa) ->
-      p2hPublish (aeP2PHandle env) TopicAggregation (encodeWire saa)
+    Right (Right (_aggAtt, _aggProof)) ->
+      -- In leanSpec, aggregated attestations and proofs are separate.
+      -- Publishing is handled via BlockSignatures now.
+      pure ()

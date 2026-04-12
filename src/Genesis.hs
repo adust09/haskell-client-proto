@@ -19,15 +19,14 @@ import Data.Text.Encoding (encodeUtf8)
 import Data.Time.Clock (UTCTime)
 import Data.Time.Format (defaultTimeLocale, parseTimeM)
 import Data.Word (Word64)
-import qualified Data.Vector as V
 
 import Consensus.Constants
 import Consensus.ForkChoice (initStore)
 import Consensus.Types
+import SSZ.Bitlist (mkBitlist)
 import SSZ.Common (zeroN)
 import SSZ.List (mkSszList)
 import SSZ.Merkleization (SszHashTreeRoot (..))
-import SSZ.Vector (mkSszVector)
 import SSZ.Common (mkBytesN)
 
 -- ---------------------------------------------------------------------------
@@ -35,8 +34,8 @@ import SSZ.Common (mkBytesN)
 -- ---------------------------------------------------------------------------
 
 data GenesisValidator = GenesisValidator
-  { gvPubkey  :: !XmssPubkey
-  , gvBalance :: !Gwei
+  { gvAttestationPubkey :: !XmssPubkey
+  , gvProposalPubkey    :: !XmssPubkey
   } deriving stock (Eq, Show)
 
 data GenesisConfig = GenesisConfig
@@ -52,12 +51,14 @@ data GenesisConfig = GenesisConfig
 
 instance FromJSON GenesisValidator where
   parseJSON = withObject "GenesisValidator" $ \o -> do
-    pubkeyHex <- o .: "pubkey"
-    balance   <- o .: "balance"
-    pubkeyBs  <- parseHexField "pubkey" pubkeyHex
-    case mkXmssPubkey pubkeyBs of
-      Left err -> fail $ "Invalid pubkey: " <> show err
-      Right pk -> pure $ GenesisValidator pk balance
+    attPubkeyHex  <- o .: "attestation_pubkey"
+    propPubkeyHex <- o .: "proposal_pubkey"
+    attPubkeyBs   <- parseHexField "attestation_pubkey" attPubkeyHex
+    propPubkeyBs  <- parseHexField "proposal_pubkey" propPubkeyHex
+    case (mkXmssPubkey attPubkeyBs, mkXmssPubkey propPubkeyBs) of
+      (Right attPk, Right propPk) -> pure $ GenesisValidator attPk propPk
+      (Left err, _) -> fail $ "Invalid attestation_pubkey: " <> show err
+      (_, Left err) -> fail $ "Invalid proposal_pubkey: " <> show err
 
 instance FromJSON GenesisConfig where
   parseJSON = withObject "GenesisConfig" $ \o -> do
@@ -89,24 +90,26 @@ parseHexField fieldName hexStr = do
 -- | Build the genesis BeaconState from configuration.
 initializeGenesisState :: GenesisConfig -> BeaconState
 initializeGenesisState gc =
-  let validators = map toValidator (gcValidators gc)
-      balances   = map gvBalance (gcValidators gc)
-      emptyRoots = forceRight $
-        mkSszVector @SLOTS_PER_HISTORICAL_ROOT (V.replicate 64 zeroRoot)
+  let validators = zipWith toValidator (gcValidators gc) [0..]
       valList    = forceRight $ mkSszList @VALIDATOR_REGISTRY_LIMIT validators
-      balList    = forceRight $ mkSszList @VALIDATOR_REGISTRY_LIMIT balances
-      emptyAtts  = forceRight $ mkSszList @MAX_ATTESTATIONS_STATE []
+      emptyHistHashes = forceRight $ mkSszList @HISTORICAL_ROOTS_LIMIT []
+      emptyJustifiedSlots = forceRight $ mkBitlist @HISTORICAL_ROOTS_LIMIT []
+      emptyJustRoots = forceRight $ mkSszList @HISTORICAL_ROOTS_LIMIT []
+      emptyJustVals = forceRight $ mkBitlist @1073741824 []
       bodyRoot   = toRoot mkEmptyBody
+      genesisTime = 0  -- placeholder; real genesis time is in Config
+      cfg = Config { cfgGenesisTime = genesisTime }
   in  BeaconState
-    { bsSlot                = 0
-    , bsLatestBlockHeader   = BeaconBlockHeader 0 0 zeroRoot zeroRoot bodyRoot
-    , bsBlockRoots          = emptyRoots
-    , bsStateRoots          = emptyRoots
-    , bsValidators          = valList
-    , bsBalances            = balList
-    , bsJustifiedCheckpoint = zeroCheckpoint
-    , bsFinalizedCheckpoint = zeroCheckpoint
-    , bsCurrentAttestations = emptyAtts
+    { bsConfig                   = cfg
+    , bsSlot                     = 0
+    , bsLatestBlockHeader        = BeaconBlockHeader 0 0 zeroRoot zeroRoot bodyRoot
+    , bsLatestJustified          = zeroCheckpoint
+    , bsLatestFinalized          = zeroCheckpoint
+    , bsHistoricalBlockHashes    = emptyHistHashes
+    , bsJustifiedSlots           = emptyJustifiedSlots
+    , bsValidators               = valList
+    , bsJustificationsRoots      = emptyJustRoots
+    , bsJustificationsValidators = emptyJustVals
     }
 
 -- | The genesis block (slot 0, zero parent root).
@@ -118,7 +121,8 @@ initializeGenesis :: GenesisConfig -> (BeaconState, Store)
 initializeGenesis gc =
   let gs    = initializeGenesisState gc
       gb    = mkGenesisBlock
-      store = initStore gs gb
+      cfg   = bsConfig gs
+      store = initStore gs gb cfg
   in  (gs, store)
 
 -- ---------------------------------------------------------------------------
@@ -133,14 +137,11 @@ parseGenesisConfig = Aeson.eitherDecode
 -- Internal helpers
 -- ---------------------------------------------------------------------------
 
-toValidator :: GenesisValidator -> Validator
-toValidator gv = Validator
-  { vPubkey           = gvPubkey gv
-  , vEffectiveBalance = gvBalance gv
-  , vSlashed          = False
-  , vActivationSlot   = 0
-  , vExitSlot         = maxBound
-  , vWithdrawableSlot = maxBound
+toValidator :: GenesisValidator -> ValidatorIndex -> Validator
+toValidator gv idx = Validator
+  { vAttestationPubkey = gvAttestationPubkey gv
+  , vProposalPubkey    = gvProposalPubkey gv
+  , vIndex             = idx
   }
 
 mkEmptyBody :: BeaconBlockBody
@@ -151,7 +152,7 @@ zeroRoot :: Root
 zeroRoot = zeroN @32
 
 zeroCheckpoint :: Checkpoint
-zeroCheckpoint = Checkpoint 0 zeroRoot
+zeroCheckpoint = Checkpoint zeroRoot 0
 
 toRoot :: SszHashTreeRoot a => a -> Root
 toRoot a = case mkBytesN @32 (hashTreeRoot a) of

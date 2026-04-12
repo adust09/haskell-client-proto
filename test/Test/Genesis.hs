@@ -21,7 +21,13 @@ tests = testGroup "Genesis"
               gcChainId gc @?= 1337
 
       , testCase "should reject invalid hex in pubkey" $ do
-          let json = BL.pack "{\"genesis_time\":\"2026-01-01T00:00:00Z\",\"validators\":[{\"pubkey\":\"0xZZZZ\",\"balance\":32000000000}],\"fork_version\":\"0x00000001\",\"chain_id\":1}"
+          let json = BL.pack $ concat
+                [ "{\"genesis_time\":\"2026-01-01T00:00:00Z\""
+                , ",\"validators\":[{\"attestation_pubkey\":\"0xZZZZ\""
+                , ",\"proposal_pubkey\":\"0xZZZZ\"}]"
+                , ",\"fork_version\":\"0x00000001\""
+                , ",\"chain_id\":1}"
+                ]
           case parseGenesisConfig json of
             Left _  -> pure ()
             Right _ -> assertFailure "Expected parse failure for invalid hex"
@@ -57,13 +63,15 @@ tests = testGroup "Genesis"
       ]
   ]
 
--- | Sample genesis JSON with 2 validators (32-byte zero pubkeys).
+-- | Sample genesis JSON with 2 validators (52-byte pubkeys per leanSpec).
 sampleGenesisJson :: BL.ByteString
 sampleGenesisJson = BL.pack $ concat
   [ "{\"genesis_time\":\"2026-01-01T00:00:00Z\""
   , ",\"validators\":["
-  , "{\"pubkey\":\"0x" <> replicate 64 '0' <> "\",\"balance\":32000000000}"
-  , ",{\"pubkey\":\"0x" <> replicate 64 'a' <> "\",\"balance\":32000000000}"
+  , "{\"attestation_pubkey\":\"0x" <> replicate 104 '0' <> "\""
+  , ",\"proposal_pubkey\":\"0x" <> replicate 104 '0' <> "\"}"
+  , ",{\"attestation_pubkey\":\"0x" <> replicate 104 'a' <> "\""
+  , ",\"proposal_pubkey\":\"0x" <> replicate 104 'a' <> "\"}"
   , "]"
   , ",\"fork_version\":\"0x00000001\""
   , ",\"chain_id\":1337"

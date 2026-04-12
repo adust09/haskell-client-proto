@@ -1,4 +1,5 @@
--- | Fork choice rule for 3SF-mini: greedy heaviest observed subtree (GHOST).
+-- | Fork choice rule for 3SF-mini, aligned with leanSpec forkchoice/store.py.
+-- Implements greedy heaviest observed subtree (GHOST) with interval-based ticking.
 module Consensus.ForkChoice
   ( -- * Errors
     ForkChoiceError (..)
@@ -14,19 +15,14 @@ module Consensus.ForkChoice
   ) where
 
 import qualified Data.Map.Strict as Map
-import Data.List (foldl', maximumBy)
+import Data.List (maximumBy)
 import Data.Ord (comparing, Down (..))
 
 import Consensus.Constants
 import Consensus.Types
-import Consensus.StateTransition
-    ( expandAggregationBits
-    , isActiveValidator
-    , checkSlashingConditions
-    , stateTransition
-    )
+import Consensus.StateTransition (stateTransition)
 import SSZ.Common (mkBytesN, unBytesN)
-import SSZ.List (unSszList)
+import SSZ.List (mkSszList)
 import SSZ.Merkleization (SszHashTreeRoot (..))
 
 -- ---------------------------------------------------------------------------
@@ -47,35 +43,44 @@ data ForkChoiceError
 -- Store initialization
 -- ---------------------------------------------------------------------------
 
--- | Initialize the store from genesis state and block.
-initStore :: BeaconState -> BeaconBlock -> Store
-initStore genesisState genesisBlock =
+-- | Initialize the store from genesis state, block, and config.
+initStore :: BeaconState -> BeaconBlock -> Config -> Store
+initStore genesisState genesisBlock cfg =
   let blockRoot = toRoot genesisBlock
-      checkpoint = Checkpoint 0 blockRoot
+      checkpoint = Checkpoint blockRoot 0
+      emptyAttSigs = forceRight $ mkSszList @MAX_ATTESTATIONS []
   in  Store
-    { stJustifiedCheckpoint = checkpoint
-    , stFinalizedCheckpoint = checkpoint
-    , stBlocks              = Map.singleton blockRoot genesisBlock
-    , stBlockStates         = Map.singleton blockRoot genesisState
-    , stLatestMessages      = Map.empty
-    , stCurrentSlot         = 0
-    , stVoteHistory         = Map.empty
+    { stTime                  = 0
+    , stConfig                = cfg
+    , stJustifiedCheckpoint   = checkpoint
+    , stFinalizedCheckpoint   = checkpoint
+    , stHead                  = blockRoot
+    , stSafeTarget            = checkpoint
+    , stBlocks                = Map.singleton blockRoot genesisBlock
+    , stBlockStates           = Map.singleton blockRoot genesisState
+    , stLatestMessages        = Map.empty
+    , stAttestationSignatures = emptyAttSigs
     }
+
+-- | Get the current slot from the store (derived from time).
+storeCurrentSlot :: Store -> Slot
+storeCurrentSlot store = stTime store `div` 5  -- INTERVALS_PER_SLOT = 5
 
 -- ---------------------------------------------------------------------------
 -- Block processing
 -- ---------------------------------------------------------------------------
 
 -- | Process a new signed block into the store.
-onBlock :: Store -> SignedBeaconBlock -> Either ForkChoiceError Store
+onBlock :: Store -> SignedBlock -> Either ForkChoiceError Store
 onBlock store signedBlock = do
-  let block = sbbBlock signedBlock
+  let block = sbMessage signedBlock
       blockSlot = bbSlot block
       parentRoot = bbParentRoot block
+      currentSlot = storeCurrentSlot store
 
   -- Slot bounds
-  if blockSlot > stCurrentSlot store
-    then Left (BlockSlotInFuture blockSlot (stCurrentSlot store))
+  if blockSlot > currentSlot
+    then Left (BlockSlotInFuture blockSlot currentSlot)
     else Right ()
 
   -- Block must not be older than finalized checkpoint
@@ -109,16 +114,17 @@ onBlock store signedBlock = do
   -- Update justified/finalized checkpoints from post-state
   let store2 = updateCheckpoints store1 postState
 
-  -- Extract latest messages from block's aggregated attestations
-  let store3 = updateLatestMessagesFromBlock store2 block postState
+  -- Update head
+  let newHead = computeHead store2
+      store3 = store2 { stHead = newHead }
 
   Right store3
 
 -- | Update store checkpoints if post-state has newer justified/finalized.
 updateCheckpoints :: Store -> BeaconState -> Store
 updateCheckpoints store postState =
-  let newJust = bsJustifiedCheckpoint postState
-      newFin  = bsFinalizedCheckpoint postState
+  let newJust = bsLatestJustified postState
+      newFin  = bsLatestFinalized postState
       store1 = if cpSlot newJust > cpSlot (stJustifiedCheckpoint store)
                then store { stJustifiedCheckpoint = newJust }
                else store
@@ -127,21 +133,27 @@ updateCheckpoints store postState =
                else store1
   in  store2
 
--- | Update latest messages from aggregated attestations in a block.
-updateLatestMessagesFromBlock :: Store -> BeaconBlock -> BeaconState -> Store
-updateLatestMessagesFromBlock store block postState =
-  let atts = unSszList (bbbAttestations (bbBody block))
-      validators = bsValidators postState
-  in  foldl' (\s saa ->
-        let ad = saaData saa
-            subnetId = saaSubnetId saa
-            voterIndices = expandAggregationBits validators subnetId (saaAggregationBits saa)
-            headRoot = adHeadRoot ad
-            attSlot = adSlot ad
-        in  foldl' (\s' vi ->
-              updateLatestMessage s' vi attSlot headRoot
-            ) s voterIndices
-      ) store atts
+-- ---------------------------------------------------------------------------
+-- Attestation processing
+-- ---------------------------------------------------------------------------
+
+-- | Process a gossip-time individual attestation.
+onAttestation :: Store -> SignedAttestation -> Either ForkChoiceError Store
+onAttestation store sa = do
+  let ad = saData sa
+      attSlot = adSlot ad
+      vi = saValidatorIndex sa
+      currentSlot = storeCurrentSlot store
+
+  if attSlot > currentSlot
+    then Left (AttestationSlotInFuture attSlot currentSlot)
+    else Right ()
+
+  -- Update latest message
+  let headRoot = cpRoot (adHead ad)
+      store1 = updateLatestMessage store vi attSlot headRoot
+
+  Right store1
 
 -- | Update a single validator's latest message if the new one is newer.
 updateLatestMessage :: Store -> ValidatorIndex -> Slot -> Root -> Store
@@ -155,40 +167,16 @@ updateLatestMessage store vi slot root =
         else store
 
 -- ---------------------------------------------------------------------------
--- Attestation processing
--- ---------------------------------------------------------------------------
-
--- | Process a gossip-time individual attestation.
-onAttestation :: Store -> SignedAttestation -> Either ForkChoiceError Store
-onAttestation store sa = do
-  let ad = saData sa
-      attSlot = adSlot ad
-      vi = saValidatorIndex sa
-
-  if attSlot > stCurrentSlot store
-    then Left (AttestationSlotInFuture attSlot (stCurrentSlot store))
-    else Right ()
-
-  -- Update latest message
-  let store1 = updateLatestMessage store vi attSlot (adHeadRoot ad)
-
-  -- Append to vote history and check slashing
-  let history = Map.findWithDefault [] vi (stVoteHistory store1)
-      store2 = store1
-        { stVoteHistory = Map.insert vi (ad : history) (stVoteHistory store1) }
-
-  -- Check slashing (evidence-only, no state mutation)
-  case checkSlashingConditions history ad of
-    Left _evidence -> Right store2  -- log evidence but continue
-    Right ()       -> Right store2
-
--- ---------------------------------------------------------------------------
 -- Head selection
 -- ---------------------------------------------------------------------------
 
 -- | Deterministic head selection via greedy heaviest observed subtree.
 getHead :: Store -> Root
-getHead store =
+getHead = stHead
+
+-- | Compute head by walking from justified root.
+computeHead :: Store -> Root
+computeHead store =
   let startRoot = cpRoot (stJustifiedCheckpoint store)
   in  walkHead store startRoot
 
@@ -213,30 +201,15 @@ getChildren store parentRoot =
   ]
 
 -- | Compute the weight of a subtree rooted at the given block.
+-- In leanSpec, all validators have equal weight (1 each).
 getWeight :: Store -> Root -> Gwei
 getWeight store root =
   let msgs = Map.toList (stLatestMessages store)
-  in  sum [ getValidatorWeight store vi
-          | (vi, lm) <- msgs
+  in  sum [ 1
+          | (_vi, lm) <- msgs
           , let msgRoot = lmRoot lm
           , msgRoot == root || isDescendant store root msgRoot
           ]
-
--- | Get effective balance of an active non-slashed validator.
-getValidatorWeight :: Store -> ValidatorIndex -> Gwei
-getValidatorWeight store vi =
-  let justRoot = cpRoot (stJustifiedCheckpoint store)
-  in  case Map.lookup justRoot (stBlockStates store) of
-        Nothing -> 0
-        Just bs ->
-          let validators = unSszList (bsValidators bs)
-              idx = fromIntegral vi
-          in  if idx < length validators
-                then let v = validators !! idx
-                     in  if isActiveValidator v (bsSlot bs)
-                           then vEffectiveBalance v
-                           else 0
-                else 0
 
 -- | Get ancestor of a block at a target slot.
 getAncestor :: Store -> Root -> Slot -> Maybe Root
@@ -265,3 +238,7 @@ toRoot :: SszHashTreeRoot a => a -> Root
 toRoot a = case mkBytesN @32 (hashTreeRoot a) of
   Right r -> r
   Left _  -> error "toRoot: hashTreeRoot did not produce 32 bytes"
+
+forceRight :: Either e a -> a
+forceRight (Right a) = a
+forceRight (Left _)  = error "forceRight: unexpected Left"

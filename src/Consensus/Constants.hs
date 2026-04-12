@@ -1,4 +1,5 @@
 -- | Consensus protocol constants and type aliases for pq-devnet-3.
+-- Aligned with leanSpec formal specification.
 module Consensus.Constants
   ( -- * Type aliases
     Slot
@@ -11,17 +12,19 @@ module Consensus.Constants
   , Domain
   , Version
   , DomainType
+  , Interval
     -- * Timing
   , slotDuration
   , networkDelayBound
+  , INTERVALS_PER_SLOT
     -- * Finality
   , slotsToFinality
+  , JUSTIFICATION_LOOKBACK_SLOTS
     -- * Type-level constants
-  , MAX_VALIDATORS_PER_SUBNET
   , MAX_ATTESTATIONS
-  , MAX_ATTESTATIONS_STATE
-  , SLOTS_PER_HISTORICAL_ROOT
   , VALIDATOR_REGISTRY_LIMIT
+  , HISTORICAL_ROOTS_LIMIT
+  , BYTE_LIST_MIB
     -- * Crypto sizes
   , xmssSignatureSize
   , xmssPubkeySize
@@ -53,6 +56,7 @@ type Root           = Bytes32
 type Domain         = Bytes32
 type Version        = Bytes4
 type DomainType     = Bytes4
+type Interval       = Word64
 
 -- ---------------------------------------------------------------------------
 -- Timing
@@ -75,14 +79,26 @@ slotsToFinality :: Word64
 slotsToFinality = 3
 
 -- ---------------------------------------------------------------------------
--- Type-level constants for SSZ collections
+-- Type-level constants for SSZ collections (aligned with leanSpec)
 -- ---------------------------------------------------------------------------
 
-type MAX_VALIDATORS_PER_SUBNET = 256
-type MAX_ATTESTATIONS          = 128
-type MAX_ATTESTATIONS_STATE    = 4096
-type SLOTS_PER_HISTORICAL_ROOT = 64
-type VALIDATOR_REGISTRY_LIMIT  = 1024
+-- | Intervals per slot (leanSpec: 5).
+type INTERVALS_PER_SLOT = 5
+
+-- | Justification lookback slots (leanSpec: 3).
+type JUSTIFICATION_LOOKBACK_SLOTS = 3
+
+-- | Max attestations in a block body / state (leanSpec: 4096).
+type MAX_ATTESTATIONS = 4096
+
+-- | Maximum number of validators (leanSpec: 2^12 = 4096).
+type VALIDATOR_REGISTRY_LIMIT = 4096
+
+-- | Historical roots limit (leanSpec: 2^18 = 262144).
+type HISTORICAL_ROOTS_LIMIT = 262144
+
+-- | ByteList max size: 1 MiB in bytes (leanSpec: proof_data limit).
+type BYTE_LIST_MIB = 1048576
 
 -- ---------------------------------------------------------------------------
 -- Crypto sizes
@@ -92,11 +108,9 @@ type VALIDATOR_REGISTRY_LIMIT  = 1024
 xmssSignatureSize :: Int
 xmssSignatureSize = 3112
 
--- | XMSS public key size in bytes.
--- Defaulting to 32 bytes (Merkle tree root only).
--- TODO: Verify against actual leanSig C library headers when obtained.
+-- | XMSS public key size in bytes (leanSpec: 52 bytes).
 xmssPubkeySize :: Int
-xmssPubkeySize = 32
+xmssPubkeySize = 52
 
 -- ---------------------------------------------------------------------------
 -- Networking

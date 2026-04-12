@@ -16,10 +16,12 @@ import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
 import Data.Word (Word32)
 
-import Consensus.Types (XmssPubkey (..), XmssSignature (..), LeanMultisigProof (..))
+import Consensus.Types (XmssPubkey (..), XmssSignature (..), AggregatedSignatureProof (..))
 import Crypto.Error (CryptoError (..))
 import Crypto.Hashing (sha256)
 import qualified Crypto.LeanSig as LeanSig
+import qualified SSZ.Bitlist
+import qualified SSZ.List
 
 -- | Prover context (stub: no resources needed).
 data ProverContext = ProverContext
@@ -45,7 +47,7 @@ teardownVerifier _ = pure ()
 -- Each signature is first verified individually (like a real prover).
 -- Returns an error if inputs are empty or any signature is invalid.
 aggregate :: ProverContext -> [(XmssPubkey, XmssSignature)] -> ByteString
-          -> IO (Either CryptoError LeanMultisigProof)
+          -> IO (Either CryptoError AggregatedSignatureProof)
 aggregate _ [] _ = pure (Left (AggregationFailed "empty input"))
 aggregate _ signers message = do
   -- Verify each signature individually
@@ -55,20 +57,23 @@ aggregate _ signers message = do
       let count = fromIntegral (length signers) :: Word32
           pubkeyBytes = map (\(XmssPubkey p, _) -> p) signers
           aggregateHash = computeAggregateHash pubkeyBytes digests message count
-          proof = aggregateHash <> encodeLE32 count <> BS.concat digests
-      pure (Right (LeanMultisigProof proof))
+          proofBytes = aggregateHash <> encodeLE32 count <> BS.concat digests
+      case (SSZ.Bitlist.mkBitlist [], SSZ.List.mkSszList (BS.unpack proofBytes)) of
+        (Right bits, Right proofData) ->
+          pure (Right (AggregatedSignatureProof bits proofData))
+        _ -> pure (Left (AggregationFailed "proof construction failed"))
 
 -- | Verify an aggregation proof against a set of public keys and message.
-verifyAggregation :: VerifierContext -> LeanMultisigProof -> [XmssPubkey] -> ByteString
+verifyAggregation :: VerifierContext -> AggregatedSignatureProof -> [XmssPubkey] -> ByteString
                   -> IO (Either CryptoError Bool)
-verifyAggregation _ (LeanMultisigProof proof) pubkeys message = pure $ do
-  -- Parse the proof
-  if BS.length proof < 36
+verifyAggregation _ aggProof pubkeys message = pure $ do
+  let proofBytes = BS.pack (SSZ.List.unSszList (aspProofData aggProof))
+  if BS.length proofBytes < 36
     then Right False
     else do
-      let storedHash = BS.take 32 proof
-          count = decodeLE32 (BS.take 4 (BS.drop 32 proof))
-          digestsBytes = BS.drop 36 proof
+      let storedHash = BS.take 32 proofBytes
+          count = decodeLE32 (BS.take 4 (BS.drop 32 proofBytes))
+          digestsBytes = BS.drop 36 proofBytes
           expectedDigestsLen = fromIntegral count * 32
       if BS.length digestsBytes /= expectedDigestsLen
         then Right False
@@ -84,18 +89,15 @@ verifyAggregation _ (LeanMultisigProof proof) pubkeys message = pure $ do
 -- Internal helpers
 -- ---------------------------------------------------------------------------
 
--- | Verify a single signer and produce a signature digest.
 verifySigner :: ByteString -> (XmssPubkey, XmssSignature) -> Either CryptoError ByteString
 verifySigner message (pubkey, sig) =
   case LeanSig.verify pubkey message sig of
     Left e -> Left e
     Right False -> Left InvalidSignature
     Right True ->
-      -- sigDigest = SHA-256(pubkey ++ sig[0..63])
       let sigDigest = sha256 (unXmssPubkey pubkey <> BS.take 64 (unXmssSignature sig))
       in  Right sigDigest
 
--- | Compute the aggregate hash from pubkeys, digests, message, and count.
 computeAggregateHash :: [ByteString] -> [ByteString] -> ByteString -> Word32 -> ByteString
 computeAggregateHash pubkeyBytes digests message count =
   sha256 ("AGG" <> BS.concat pubkeyBytes <> BS.concat digests <> message <> encodeLE32 count)

@@ -4,15 +4,23 @@ import Test.Tasty
 import Test.Tasty.HUnit
 
 import qualified Data.ByteString as BS
-import Consensus.Types (LeanMultisigProof (..))
+import Data.Word (Word8)
+import Consensus.Constants (BYTE_LIST_MIB)
+import Consensus.Types (AggregatedSignatureProof (..))
 import Crypto.Error (CryptoError (..))
 import Crypto.LeanSig (generateKeyPair, sign)
 import Crypto.LeanMultisig
+import SSZ.Common (SszError)
+import SSZ.List (SszList, mkSszList, unSszList)
 
 -- | Unwrap a Right or fail.
 unsafeRight :: (Show e) => Either e a -> a
 unsafeRight (Right x) = x
 unsafeRight (Left e)  = error ("unexpected Left: " <> show e)
+
+-- | Helper to convert ByteString to SszList Word8 for tampering.
+mkSszListFromBytes :: BS.ByteString -> Either SszError (SszList BYTE_LIST_MIB Word8)
+mkSszListFromBytes bs = mkSszList (BS.unpack bs)
 
 tests :: TestTree
 tests = testGroup "Crypto.LeanMultisig"
@@ -46,10 +54,14 @@ tests = testGroup "Crypto.LeanMultisig"
       verifier <- setupVerifier
       let (pk, pub) = unsafeRight $ generateKeyPair 10 "seed-1"
           sig = unsafeRight $ sign pk "hello" 0
-      (LeanMultisigProof proofBytes) <- unsafeRight <$> aggregate prover [(pub, sig)] "hello"
-      -- Flip a byte in the proof
-      let tampered = LeanMultisigProof (BS.take 5 proofBytes <> BS.singleton (BS.index proofBytes 5 + 1) <> BS.drop 6 proofBytes)
-      valid <- unsafeRight <$> verifyAggregation verifier tampered [pub] "hello"
+      proof <- unsafeRight <$> aggregate prover [(pub, sig)] "hello"
+      -- Tamper with proof data bytes
+      let proofBytes = BS.pack (unSszList (aspProofData proof))
+          tamperedBytes = BS.take 5 proofBytes <> BS.singleton (BS.index proofBytes 5 + 1) <> BS.drop 6 proofBytes
+          tamperedProof = proof { aspProofData = case mkSszListFromBytes tamperedBytes of
+                                    Right sl -> sl
+                                    Left _   -> aspProofData proof }
+      valid <- unsafeRight <$> verifyAggregation verifier tamperedProof [pub] "hello"
       valid @?= False
       teardownProver prover
       teardownVerifier verifier

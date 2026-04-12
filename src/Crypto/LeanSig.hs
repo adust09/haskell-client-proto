@@ -38,8 +38,12 @@ privateKeyTreeHeight :: PrivateKey -> Word32
 privateKeyTreeHeight = pkTreeHeight
 
 -- | Extract the public key from a private key.
+-- Pads Ed25519 32-byte key to xmssPubkeySize (52) bytes for leanSpec compatibility.
 publicKeyFromPrivate :: PrivateKey -> XmssPubkey
-publicKeyFromPrivate pk = XmssPubkey (BA.convert (pkPublicKey pk) :: ByteString)
+publicKeyFromPrivate pk =
+  let raw = BA.convert (pkPublicKey pk) :: ByteString
+      padded = raw <> BS.replicate (xmssPubkeySize - BS.length raw) 0
+  in  XmssPubkey padded
 
 -- | Generate a keypair from a tree height and seed.
 -- Tree height must be in [1, 31].
@@ -52,10 +56,10 @@ generateKeyPair treeHeight seed
             CryptoPassed k -> k
             CryptoFailed _ -> error "generateKeyPair: Ed25519.secretKey failed on 32-byte input"
           pk = Ed25519.toPublic sk
-          pubBytes = BA.convert pk :: ByteString
-      in  case BS.length pubBytes == xmssPubkeySize of
-            True  -> Right (PrivateKey sk pk treeHeight, XmssPubkey pubBytes)
-            False -> error "generateKeyPair: Ed25519 pubkey is not 32 bytes"
+          rawPubBytes = BA.convert pk :: ByteString
+          -- Pad Ed25519 32-byte key to xmssPubkeySize (52) bytes
+          pubBytes = rawPubBytes <> BS.replicate (xmssPubkeySize - BS.length rawPubBytes) 0
+      in  Right (PrivateKey sk pk treeHeight, XmssPubkey pubBytes)
 
 -- | Sign a message with a given leaf index.
 -- The leaf index is embedded in the signature for verification.
@@ -76,7 +80,8 @@ verify :: XmssPubkey -> ByteString -> XmssSignature -> Either CryptoError Bool
 verify (XmssPubkey pubBytes) message (XmssSignature sigBytes)
   | BS.length sigBytes /= xmssSignatureSize = Left InvalidSignature
   | otherwise =
-      case Ed25519.publicKey pubBytes of
+      -- Extract first 32 bytes (Ed25519 key) from 52-byte XMSS pubkey
+      case Ed25519.publicKey (BS.take 32 pubBytes) of
         CryptoFailed _ -> Left InvalidKeyFormat
         CryptoPassed pk ->
           let ed25519SigBytes = BS.take 64 sigBytes

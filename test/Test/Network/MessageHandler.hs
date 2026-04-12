@@ -6,7 +6,6 @@ import Test.Tasty.HUnit
 import qualified Data.ByteString as BS
 
 import Consensus.ForkChoice (initStore)
-import Consensus.StateTransition (getAttestationSubnet)
 import Consensus.Types
 import Network.MessageHandler
 import SSZ.Common (mkBytesN)
@@ -18,6 +17,9 @@ tests = testGroup "Network.MessageHandler"
   , blockValidationTests
   , attestationValidationTests
   ]
+
+cfg :: Config
+cfg = Config 0
 
 -- ---------------------------------------------------------------------------
 -- SeenCache tests
@@ -61,29 +63,29 @@ seenCacheTests = testGroup "SeenCache"
 blockValidationTests :: TestTree
 blockValidationTests = testGroup "Block validation"
   [ testCase "valid block is accepted" $ do
-      let vals = [mkTestValidator 1 32000000]
+      let vals = [mkTestValidator 1]
           gs = mkTestGenesisState vals
-          store = initStore gs mkTestGenesisBlock
+          store = initStore gs mkTestGenesisBlock cfg
           sbb = mkTestSignedBlock gs 1
-          store1 = store { stCurrentSlot = 1 }
+          store1 = store { stTime = 5 }  -- slot 1 = time 5 / 5
       validateBlock store1 sbb 1 @?= Accept
 
   , testCase "future block is rejected" $ do
-      let vals = [mkTestValidator 1 32000000]
+      let vals = [mkTestValidator 1]
           gs = mkTestGenesisState vals
-          store = initStore gs mkTestGenesisBlock
-      let farBlock = SignedBeaconBlock (BeaconBlock 100 0 zeroRoot zeroRoot mkEmptyBody) zeroSig
+          store = initStore gs mkTestGenesisBlock cfg
+      let farBlock = SignedBlock (BeaconBlock 100 0 zeroRoot zeroRoot mkEmptyBody) zeroBlockSignatures
       validateBlock store farBlock 0 @?= Reject
 
   , testCase "orphan block is ignored" $ do
-      let vals = [mkTestValidator 1 32000000]
+      let vals = [mkTestValidator 1]
           gs = mkTestGenesisState vals
-          store = initStore gs mkTestGenesisBlock
+          store = initStore gs mkTestGenesisBlock cfg
           orphanParent = case mkBytesN @32 (BS.replicate 32 0xFF) of
                            Right r -> r
                            Left _ -> error "impossible"
-          orphanBlock = SignedBeaconBlock
-            (BeaconBlock 1 0 orphanParent zeroRoot mkEmptyBody) zeroSig
+          orphanBlock = SignedBlock
+            (BeaconBlock 1 0 orphanParent zeroRoot mkEmptyBody) zeroBlockSignatures
       validateBlock store orphanBlock 1 @?= Ignore
   ]
 
@@ -94,36 +96,28 @@ blockValidationTests = testGroup "Block validation"
 attestationValidationTests :: TestTree
 attestationValidationTests = testGroup "Attestation validation"
   [ testCase "valid attestation is accepted" $ do
-      let vals = [mkTestValidator 1 32000000]
+      let vals = [mkTestValidator 1]
           gs = mkTestGenesisState vals
           genesisBlock = mkTestGenesisBlock
-          store = initStore gs genesisBlock
+          store = initStore gs genesisBlock cfg
           genesisRoot = toRoot genesisBlock
-          att = mkTestAttestation 0 0 genesisRoot zeroCheckpoint zeroCheckpoint
-          subnet = getAttestationSubnet 0
-      validateAttestation (store { stCurrentSlot = 1 }) att subnet 1 @?= Accept
+          headCp = Checkpoint genesisRoot 0
+          att = mkTestAttestation 0 0 headCp zeroCheckpoint zeroCheckpoint
+      validateAttestation (store { stTime = 5 }) att 0 1 @?= Accept
 
   , testCase "future attestation is rejected" $ do
-      let vals = [mkTestValidator 1 32000000]
+      let vals = [mkTestValidator 1]
           gs = mkTestGenesisState vals
-          store = initStore gs mkTestGenesisBlock
-          att = mkTestAttestation 0 10 zeroRoot zeroCheckpoint zeroCheckpoint
-          subnet = getAttestationSubnet 0
-      validateAttestation store att subnet 0 @?= Reject
-
-  , testCase "wrong subnet is rejected" $ do
-      let vals = [mkTestValidator 1 32000000]
-          gs = mkTestGenesisState vals
-          store = initStore gs mkTestGenesisBlock
-          att = mkTestAttestation 0 0 zeroRoot zeroCheckpoint zeroCheckpoint
-          wrongSubnet = getAttestationSubnet 0 + 1
-      validateAttestation (store { stCurrentSlot = 1 }) att wrongSubnet 1 @?= Reject
+          store = initStore gs mkTestGenesisBlock cfg
+          headCp = Checkpoint zeroRoot 10
+          att = mkTestAttestation 0 10 headCp zeroCheckpoint zeroCheckpoint
+      validateAttestation store att 0 0 @?= Reject
 
   , testCase "old attestation is ignored" $ do
-      let vals = [mkTestValidator 1 32000000]
+      let vals = [mkTestValidator 1]
           gs = mkTestGenesisState vals
-          store = initStore gs mkTestGenesisBlock
-          att = mkTestAttestation 0 0 zeroRoot zeroCheckpoint zeroCheckpoint
-          subnet = getAttestationSubnet 0
-      validateAttestation (store { stCurrentSlot = 10 }) att subnet 10 @?= Ignore
+          store = initStore gs mkTestGenesisBlock cfg
+          headCp = Checkpoint zeroRoot 0
+          att = mkTestAttestation 0 0 headCp zeroCheckpoint zeroCheckpoint
+      validateAttestation (store { stTime = 50 }) att 0 10 @?= Ignore
   ]

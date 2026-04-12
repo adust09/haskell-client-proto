@@ -14,7 +14,7 @@ import Data.Word (Word64)
 
 import Consensus.Constants (Slot)
 import Consensus.ForkChoice (onBlock)
-import Consensus.Types (Store (..), SignedBeaconBlock (..), BeaconBlock (..))
+import Consensus.Types (Store (..), SignedBlock (..), BeaconBlock (..))
 import Network.P2P.Types (P2PHandle (..))
 import Network.P2P.Wire (decodeWire)
 
@@ -37,6 +37,10 @@ data SyncEnv = SyncEnv
   , seBatchSize   :: !Word64
   }
 
+-- | Get current slot from store (derived from time / intervals_per_slot).
+storeCurrentSlot :: Store -> Slot
+storeCurrentSlot store = stTime store `div` 5
+
 -- ---------------------------------------------------------------------------
 -- Sync logic
 -- ---------------------------------------------------------------------------
@@ -45,7 +49,7 @@ data SyncEnv = SyncEnv
 runSync :: SyncEnv -> Slot -> IO SyncStatus
 runSync env targetSlot = do
   store <- readTVarIO (seStore env)
-  let headSlot = stCurrentSlot store
+  let headSlot = storeCurrentSlot store
   if headSlot >= targetSlot
     then do
       atomically $ writeTVar (seStatus env) Synced
@@ -81,21 +85,21 @@ syncBatch env startSlot count = do
 applyBlocks :: SyncEnv -> [ByteString] -> Slot -> IO (Either String Slot)
 applyBlocks env [] _lastSlot = do
   store <- readTVarIO (seStore env)
-  pure (Right (stCurrentSlot store))
+  pure (Right (storeCurrentSlot store))
 applyBlocks env (raw:rest) _fallbackSlot =
   case decodeWire raw of
     Left err -> pure (Left ("SSZ decode failed: " <> show err))
-    Right sbb -> do
-      let blockSlot = bbSlot (sbbBlock sbb)
+    Right sb -> do
+      let blockSlot = bbSlot (sbMessage sb)
       result <- atomically $ do
         store <- readTVar (seStore env)
-        -- Advance stCurrentSlot so onBlock doesn't reject the block as "future"
-        let store' = store { stCurrentSlot = max blockSlot (stCurrentSlot store) }
-        case onBlock store' sbb of
+        -- Advance time so onBlock doesn't reject the block as "future"
+        let store' = store { stTime = max (blockSlot * 5) (stTime store) }
+        case onBlock store' sb of
           Left err -> pure (Left (show err))
           Right store'' -> do
             writeTVar (seStore env) store''
             pure (Right store'')
       case result of
         Left err -> pure (Left ("block application failed: " <> err))
-        Right store' -> applyBlocks env rest (stCurrentSlot store')
+        Right store' -> applyBlocks env rest (storeCurrentSlot store')

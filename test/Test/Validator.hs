@@ -39,10 +39,10 @@ tests = testGroup "Validator"
 -- | Test that getProposerIndex correctly identifies the proposer.
 testProposalDutyDetection :: IO ()
 testProposalDutyDetection = do
-  let vals = [ mkTestValidator 0 32000000000
-             , mkTestValidator 1 32000000000
-             , mkTestValidator 2 32000000000
-             , mkTestValidator 3 32000000000
+  let vals = [ mkTestValidator 0
+             , mkTestValidator 1
+             , mkTestValidator 2
+             , mkTestValidator 3
              ]
       gs = mkTestGenesisState vals
 
@@ -76,10 +76,10 @@ testBlockProposal =
     p2pActor <- spawnActor "test-p2p" (trackingLoop p2pMsgs)
 
     withStorage storePath gs store $ \sh -> do
-      atomically $ writeForkChoiceStore sh (store { stCurrentSlot = 1 })
+      atomically $ writeForkChoiceStore sh (store { stTime = 5 })
 
       -- With 2 validators, slot 2 mod 2 == 0, so validator 0 is proposer at slot 2
-      atomically $ writeForkChoiceStore sh (store { stCurrentSlot = 2 })
+      atomically $ writeForkChoiceStore sh (store { stTime = 10 })
 
       let env = ValidatorEnv
             { veStorage        = sh
@@ -120,7 +120,7 @@ testAttestationCreation =
     p2pActor <- spawnActor "test-p2p" (trackingLoop p2pMsgs)
 
     withStorage storePath gs store $ \sh -> do
-      atomically $ writeForkChoiceStore sh (store { stCurrentSlot = 1 })
+      atomically $ writeForkChoiceStore sh (store { stTime = 5 })
 
       let env = ValidatorEnv
             { veStorage        = sh
@@ -162,7 +162,7 @@ testNoProposalWhenNotProposer =
     p2pActor <- spawnActor "test-p2p" (sinkLoop @P2PMsg)
 
     withStorage storePath gs store $ \sh -> do
-      atomically $ writeForkChoiceStore sh (store { stCurrentSlot = 1 })
+      atomically $ writeForkChoiceStore sh (store { stTime = 5 })
 
       let env = ValidatorEnv
             { veStorage        = sh
@@ -202,7 +202,7 @@ testMultiSlotIntegration =
     p2pActor <- spawnActor "test-p2p" (sinkLoop @P2PMsg)
 
     withStorage storePath gs store $ \sh -> do
-      atomically $ writeForkChoiceStore sh (store { stCurrentSlot = 5 })
+      atomically $ writeForkChoiceStore sh (store { stTime = 25 })
 
       let env = ValidatorEnv
             { veStorage        = sh
