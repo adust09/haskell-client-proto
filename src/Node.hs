@@ -140,7 +140,7 @@ blockchainLoop storage queue = go
           go
 
         BcNewAggregation _agg -> do
-          -- Aggregations are processed during block inclusion, not individually
+          -- In leanSpec, aggregations are handled via BlockSignatures
           go
 
 -- | P2P actor loop: processes outgoing publish messages.

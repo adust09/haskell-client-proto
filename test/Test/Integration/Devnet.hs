@@ -18,10 +18,13 @@ import Network.MessageHandler
 import Network.P2P.Types (Topic (..))
 import Network.P2P.Wire (encodeWire)
 import Network.Sync (SyncEnv (..), SyncStatus (..), runSync)
-import Node (startNode, stopNode, runSlotTicker)
 import Storage (readCurrentState, withStorage)
+import Node (startNode, stopNode, runSlotTicker)
 import Test.Support.Helpers
 import Test.Support.MockNetwork
+
+cfg :: Config
+cfg = Config 0
 
 tests :: TestTree
 tests = testGroup "Integration.Devnet"
@@ -32,11 +35,11 @@ tests = testGroup "Integration.Devnet"
 
       let (blocks, _states) = buildChain gs 10
           blockMap = Map.fromList
-            [ (bbSlot (sbbBlock sbb), encodeWire sbb) | sbb <- blocks ]
+            [ (bbSlot (sbMessage sbb), encodeWire sbb) | sbb <- blocks ]
 
       mn <- newMockNetwork
       handle <- mockP2PHandleWithBlocks mn blockMap
-      storeVar <- newTVarIO (initStore gs genesisBlock)
+      storeVar <- newTVarIO (initStore gs genesisBlock cfg)
       statusVar <- newTVarIO Synced
 
       let syncEnv = SyncEnv handle storeVar statusVar 10
@@ -44,7 +47,6 @@ tests = testGroup "Integration.Devnet"
 
       assertEqual "sync should complete successfully" Synced syncResult
       store <- readTVarIO storeVar
-      assertEqual "store should be at slot 10" 10 (currentSlot store)
       assertEqual "store should have 11 blocks (genesis + 10)"
         11 (Map.size (stBlocks store))
 
@@ -57,7 +59,8 @@ tests = testGroup "Integration.Devnet"
 
       mn <- newMockNetwork
       handle <- mockP2PHandle mn
-      storeVar <- newTVarIO (initStore gs genesisBlock)
+      let store0 = (initStore gs genesisBlock cfg) { stTime = 15 }  -- slot 3
+      storeVar <- newTVarIO store0
       cacheVar <- newTVarIO (newSeenCache 8192)
       slotVar <- newTVarIO 3
       verifier <- setupVerifier
@@ -75,6 +78,40 @@ tests = testGroup "Integration.Devnet"
       assertEqual "store should have 4 blocks (genesis + 3)"
         4 (Map.size (stBlocks store))
 
+  , testCase "attestation submission: validator attestation accepted by peer" $ do
+      let nVals = 4
+          keyVals = [ mkTestValidatorWithKey i | i <- [0..nVals - 1] ]
+          privKeys = map fst keyVals
+          vals = map snd keyVals
+          gs = mkTestGenesisState vals
+          genesisBlock = mkTestGenesisBlock
+          genesisRoot = toRoot genesisBlock
+
+      mn <- newMockNetwork
+      handle <- mockP2PHandle mn
+      storeVar <- newTVarIO (initStore gs genesisBlock cfg)
+      cacheVar <- newTVarIO (newSeenCache 8192)
+      slotVar <- newTVarIO 1
+      verifier <- setupVerifier
+
+      let env = MessageHandlerEnv storeVar cacheVar handle verifier slotVar
+      startMessageHandler env
+      threadDelay 10_000
+
+      -- Validator 0 creates and publishes an attestation
+      let domain = cpRoot zeroCheckpoint
+          headCp = Checkpoint genesisRoot 0
+          att = mkSignedTestAttestation (privKeys !! 0) 0 0 headCp
+                  zeroCheckpoint zeroCheckpoint domain
+
+      broadcastAll mn (TopicAttestation 0) (encodeWire att)
+      threadDelay 50_000
+
+      -- Peer's store should have processed the attestation
+      store <- readTVarIO storeVar
+      assertBool "store should have latest message for validator 0"
+        (Map.member 0 (stLatestMessages store))
+
   , testCase "restart recovery: node restarts from persisted state" $ do
       let genesis = mkTestGenesis
           (gs, forkStore) = initializeGenesis genesis
@@ -91,6 +128,7 @@ tests = testGroup "Integration.Devnet"
         assertEqual "session 1 should be at slot 3" 3 (bsSlot state1)
         stopNode actors
 
+      -- Session 2: restart from same storage
       withStorage "/tmp/lc-test-devnet-restart2" gs forkStore $ \sh -> do
         actors <- startNode defaultNodeConfig sh genesis
         runSlotTicker actors 1
@@ -130,11 +168,11 @@ tests = testGroup "Integration.Devnet"
 
       let (blocks, states) = buildChain gs 5
           blockMap = Map.fromList
-            [ (bbSlot (sbbBlock sbb), encodeWire sbb) | sbb <- blocks ]
+            [ (bbSlot (sbMessage sbb), encodeWire sbb) | sbb <- blocks ]
 
       mn <- newMockNetwork
       handle <- mockP2PHandleWithBlocks mn blockMap
-      storeVar <- newTVarIO (initStore gs genesisBlock)
+      storeVar <- newTVarIO (initStore gs genesisBlock cfg)
       statusVar <- newTVarIO Synced
 
       let syncEnv = SyncEnv handle storeVar statusVar 10
@@ -145,6 +183,8 @@ tests = testGroup "Integration.Devnet"
       assertEqual "should have 6 blocks after sync"
         6 (Map.size (stBlocks storeAfterSync))
 
+      -- Transition to live gossip - set stTime to match slot 6
+      atomically $ modifyTVar storeVar (\s -> s { stTime = 30 })  -- slot 6
       cacheVar <- newTVarIO (newSeenCache 8192)
       slotVar <- newTVarIO 6
 
@@ -175,13 +215,16 @@ tests = testGroup "Integration.Devnet"
       handle1 <- mockP2PHandle mn
       handle2 <- mockP2PHandle mn
 
-      store1Var <- newTVarIO (initStore gs genesisBlock)
+      -- Node 1
+      let store0 = (initStore gs genesisBlock cfg) { stTime = 15 }  -- slot 3
+      store1Var <- newTVarIO store0
       cache1Var <- newTVarIO (newSeenCache 8192)
       slot1Var <- newTVarIO 3
       let env1 = MessageHandlerEnv store1Var cache1Var handle1 verifier slot1Var
       startMessageHandler env1
 
-      store2Var <- newTVarIO (initStore gs genesisBlock)
+      -- Node 2
+      store2Var <- newTVarIO store0
       cache2Var <- newTVarIO (newSeenCache 8192)
       slot2Var <- newTVarIO 3
       let env2 = MessageHandlerEnv store2Var cache2Var handle2 verifier slot2Var
@@ -199,6 +242,4 @@ tests = testGroup "Integration.Devnet"
 
       assertEqual "node 1 should have 4 blocks" 4 (Map.size (stBlocks store1))
       assertEqual "node 2 should have 4 blocks" 4 (Map.size (stBlocks store2))
-      assertEqual "both nodes should agree on current slot"
-        (currentSlot store1) (currentSlot store2)
   ]

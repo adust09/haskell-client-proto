@@ -29,16 +29,6 @@ zeroRoot = zeroN @32
 zeroCheckpoint :: Checkpoint
 zeroCheckpoint = Checkpoint zeroRoot 0
 
-zeroSig :: XmssSignature
-zeroSig = case mkXmssSignature (BS.replicate xmssSignatureSize 0) of
-  Right s -> s
-  Left _  -> error "zeroSig"
-
-mkBlockSignatures :: BlockSignatures
-mkBlockSignatures =
-  let emptyAttSigs = forceRight $ mkSszList @MAX_ATTESTATION_SIGNATURES []
-  in  BlockSignatures emptyAttSigs zeroSig
-
 mkValidatorWithPubkey :: Word8 -> ValidatorIndex -> Validator
 mkValidatorWithPubkey w idx =
   let pk = case mkXmssPubkey (BS.replicate xmssPubkeySize w) of
@@ -46,28 +36,47 @@ mkValidatorWithPubkey w idx =
              Left _  -> error "mkValidatorWithPubkey"
   in  Validator pk pk idx
 
+zeroSig :: XmssSignature
+zeroSig = case mkXmssSignature (BS.replicate xmssSignatureSize 0) of
+  Right s -> s
+  Left _  -> error "zeroSig"
+
+zeroBlockSignatures :: BlockSignatures
+zeroBlockSignatures = BlockSignatures
+  { bsigAttestationSignatures = case mkSszList @MAX_ATTESTATION_SIGNATURES [] of
+      Right sl -> sl
+      Left _   -> error "zeroBlockSignatures"
+  , bsigProposerSignature = zeroSig
+  }
+
 mkGenesisState :: [Validator] -> BeaconState
 mkGenesisState vals =
-  let config = Config { cfgGenesisTime = 0 }
-      valList = forceRight $ mkSszList @VALIDATORS_LIMIT vals
-      emptyHashes = forceRight $ mkSszList @HISTORICAL_BLOCK_HASHES_LIMIT []
-      emptyJSlots = forceRight $ mkBitlist @JUSTIFIED_SLOTS_LIMIT []
-      emptyJRoots = forceRight $ mkSszList @JUSTIFICATIONS_ROOTS_LIMIT []
-      emptyJVals  = forceRight $ mkBitlist @JUSTIFICATIONS_VALIDATORS_LIMIT []
-      emptyBody = BeaconBlockBody
-        { bbbAttestations = forceRight $ mkSszList @MAX_ATTESTATIONS [] }
-      bodyRoot = toRoot emptyBody
+  let valList = case mkSszList @VALIDATOR_REGISTRY_LIMIT vals of
+                  Right sl -> sl
+                  Left _   -> error "mkGenesisState: validators"
+      emptyHashes = case mkSszList @HISTORICAL_ROOTS_LIMIT [] of
+                      Right sl -> sl
+                      Left _   -> error "mkGenesisState: hashes"
+      emptyJustSlots = case mkBitlist @HISTORICAL_ROOTS_LIMIT [] of
+                         Right b -> b
+                         Left _  -> error "mkGenesisState: justSlots"
+      emptyJustRoots = case mkSszList @HISTORICAL_ROOTS_LIMIT [] of
+                         Right sl -> sl
+                         Left _   -> error "mkGenesisState: justRoots"
+      emptyJustVals = case mkBitlist @1073741824 [] of
+                        Right b -> b
+                        Left _  -> error "mkGenesisState: justVals"
   in  BeaconState
-    { bsConfig                   = config
-    , bsSlot                     = 0
-    , bsLatestBlockHeader        = BeaconBlockHeader 0 0 zeroRoot zeroRoot bodyRoot
-    , bsLatestJustified          = zeroCheckpoint
-    , bsLatestFinalized          = zeroCheckpoint
-    , bsHistoricalBlockHashes    = emptyHashes
-    , bsJustifiedSlots           = emptyJSlots
-    , bsValidators               = valList
-    , bsJustificationsRoots      = emptyJRoots
-    , bsJustificationsValidators = emptyJVals
+    { bsConfig                    = Config 0
+    , bsSlot                      = 0
+    , bsLatestBlockHeader         = BeaconBlockHeader 0 0 zeroRoot zeroRoot zeroRoot
+    , bsLatestJustified           = zeroCheckpoint
+    , bsLatestFinalized           = zeroCheckpoint
+    , bsHistoricalBlockHashes     = emptyHashes
+    , bsJustifiedSlots            = emptyJustSlots
+    , bsValidators                = valList
+    , bsJustificationsRoots       = emptyJustRoots
+    , bsJustificationsValidators  = emptyJustVals
     }
 
 mkEmptyBody :: BeaconBlockBody
@@ -77,6 +86,9 @@ mkEmptyBody = BeaconBlockBody
 forceRight :: Either e a -> a
 forceRight (Right a) = a
 forceRight (Left _)  = error "forceRight: unexpected Left"
+
+cfg :: Config
+cfg = Config 0
 
 -- ---------------------------------------------------------------------------
 -- Tests
@@ -96,21 +108,21 @@ tests = testGroup "Consensus.Integration"
             , bbStateRoot     = zeroRoot
             , bbBody          = mkEmptyBody
             }
-          signedBlock = SignedBeaconBlock block mkBlockSignatures
+          signedBlock = SignedBlock block zeroBlockSignatures
       case stateTransition gs signedBlock False of
         Right postState -> do
           bsSlot postState @?= 1
           bbhSlot (bsLatestBlockHeader postState) @?= 1
         Left err -> assertFailure $ "State transition failed: " ++ show err
 
-  , testCase "fork choice selects heavier chain" $ do
+  , testCase "fork choice selects genesis with no other blocks" $ do
       let vals = [ mkValidatorWithPubkey 1 0
                  , mkValidatorWithPubkey 2 1
                  , mkValidatorWithPubkey 3 2
                  ]
           gs = mkGenesisState vals
           genesisBlock = BeaconBlock 0 0 zeroRoot zeroRoot mkEmptyBody
-          store = initStore gs genesisBlock
+          store = initStore gs genesisBlock cfg
           genesisRoot = toRoot genesisBlock
 
       getHead store @?= genesisRoot

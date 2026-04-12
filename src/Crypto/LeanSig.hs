@@ -38,8 +38,12 @@ privateKeyTreeHeight :: PrivateKey -> Word32
 privateKeyTreeHeight = pkTreeHeight
 
 -- | Extract the public key from a private key.
+-- Pads Ed25519 32-byte key to xmssPubkeySize (52) bytes for leanSpec compatibility.
 publicKeyFromPrivate :: PrivateKey -> XmssPubkey
-publicKeyFromPrivate pk = XmssPubkey (BA.convert (pkPublicKey pk) :: ByteString)
+publicKeyFromPrivate pk =
+  let raw = BA.convert (pkPublicKey pk) :: ByteString
+      padded = raw <> BS.replicate (xmssPubkeySize - BS.length raw) 0
+  in  XmssPubkey padded
 
 -- | Generate a keypair from a tree height and seed.
 -- Tree height must be in [1, 31].

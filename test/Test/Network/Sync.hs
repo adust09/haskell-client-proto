@@ -6,7 +6,7 @@ import Data.Word (Word64)
 import Test.Tasty
 import Test.Tasty.HUnit
 
-import Consensus.ForkChoice (initStore, onBlock, onTick)
+import Consensus.ForkChoice (initStore, onBlock)
 import Consensus.StateTransition (stateTransition)
 import Consensus.Types
 import Network.P2P.Wire (encodeWire)
@@ -14,19 +14,21 @@ import Network.Sync
 import Test.Support.Helpers
 import Test.Support.MockNetwork
 
+cfg :: Config
+cfg = Config 0
+
 tests :: TestTree
 tests = testGroup "Network.Sync"
   [ testCase "onBlock accepts blocks built by stateTransition" $ do
       let vals = [mkTestValidator 1 0]
           gs = mkTestGenesisState vals
           genesisBlock = mkTestGenesisBlock
-          store0 = initStore gs genesisBlock
+          store0 = initStore gs genesisBlock cfg
           sbb1 = mkTestSignedBlock gs 1
-          store1 = onTick store0 4
+          store1 = store0 { stTime = 5 }  -- slot 1 = time 5 / 5
       case onBlock store1 sbb1 of
         Left err -> assertFailure $ "onBlock failed: " <> show err
         Right store2 -> do
-          currentSlot store2 @?= 1
           Map.size (stBlocks store2) @?= 2
 
   , testCase "syncBatch applies one block" $ do
@@ -38,7 +40,7 @@ tests = testGroup "Network.Sync"
 
       mn <- newMockNetwork
       handle <- mockP2PHandleWithBlocks mn blockMap
-      storeVar <- newTVarIO (initStore gs genesisBlock)
+      storeVar <- newTVarIO (initStore gs genesisBlock cfg)
       statusVar <- newTVarIO Synced
       let syncEnv = SyncEnv handle storeVar statusVar 64
 
@@ -73,7 +75,7 @@ tests = testGroup "Network.Sync"
                   mn <- newMockNetwork
                   handle <- mockP2PHandleWithBlocks mn blockMap
 
-                  storeVar <- newTVarIO (initStore gs genesisBlock)
+                  storeVar <- newTVarIO (initStore gs genesisBlock cfg)
                   statusVar <- newTVarIO Synced
                   let syncEnv = SyncEnv handle storeVar statusVar 64
 
@@ -81,7 +83,7 @@ tests = testGroup "Network.Sync"
                   result @?= Synced
 
                   store <- readTVarIO storeVar
-                  currentSlot store @?= 3
+                  Map.size (stBlocks store) @?= 4  -- genesis + 3
 
   , testCase "sync with no blocks needed returns Synced" $ do
       let vals = [mkTestValidator 1 0]
@@ -90,7 +92,7 @@ tests = testGroup "Network.Sync"
 
       mn <- newMockNetwork
       handle <- mockP2PHandle mn
-      storeVar <- newTVarIO (initStore gs genesisBlock)
+      storeVar <- newTVarIO (initStore gs genesisBlock cfg)
       statusVar <- newTVarIO Synced
       let syncEnv = SyncEnv handle storeVar statusVar 64
 

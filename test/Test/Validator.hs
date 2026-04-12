@@ -8,8 +8,7 @@ import Control.Concurrent.STM
 
 import Actor (Actor (..), spawnActor)
 import Consensus.StateTransition (getProposerIndex, processSlot)
-import Consensus.ForkChoice (onTick)
-import Consensus.Types (XmssPubkey)
+import Consensus.Types (XmssPubkey, stTime)
 import Crypto.KeyManager (newManagedKey)
 import Crypto.LeanSig (PrivateKey, generateKeyPair)
 import Crypto.SigningRoot (computeDomain)
@@ -77,10 +76,10 @@ testBlockProposal =
     p2pActor <- spawnActor "test-p2p" (trackingLoop p2pMsgs)
 
     withStorage storePath gs store $ \sh -> do
-      atomically $ writeForkChoiceStore sh (onTick store 4)
+      atomically $ writeForkChoiceStore sh (store { stTime = 5 })
 
       -- With 2 validators, slot 2 mod 2 == 0, so validator 0 is proposer at slot 2
-      atomically $ writeForkChoiceStore sh (onTick store 8)
+      atomically $ writeForkChoiceStore sh (store { stTime = 10 })
 
       let env = ValidatorEnv
             { veStorage        = sh
@@ -121,7 +120,7 @@ testAttestationCreation =
     p2pActor <- spawnActor "test-p2p" (trackingLoop p2pMsgs)
 
     withStorage storePath gs store $ \sh -> do
-      atomically $ writeForkChoiceStore sh (onTick store 4)
+      atomically $ writeForkChoiceStore sh (store { stTime = 5 })
 
       let env = ValidatorEnv
             { veStorage        = sh
@@ -163,7 +162,7 @@ testNoProposalWhenNotProposer =
     p2pActor <- spawnActor "test-p2p" (sinkLoop @P2PMsg)
 
     withStorage storePath gs store $ \sh -> do
-      atomically $ writeForkChoiceStore sh (onTick store 4)
+      atomically $ writeForkChoiceStore sh (store { stTime = 5 })
 
       let env = ValidatorEnv
             { veStorage        = sh
@@ -203,7 +202,7 @@ testMultiSlotIntegration =
     p2pActor <- spawnActor "test-p2p" (sinkLoop @P2PMsg)
 
     withStorage storePath gs store $ \sh -> do
-      atomically $ writeForkChoiceStore sh (onTick store 20)
+      atomically $ writeForkChoiceStore sh (store { stTime = 25 })
 
       let env = ValidatorEnv
             { veStorage        = sh

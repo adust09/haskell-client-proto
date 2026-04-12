@@ -12,11 +12,12 @@ import Control.Concurrent.STM
 import Data.ByteString (ByteString)
 import Data.Word (Word64)
 
-import Consensus.Constants (Slot, slotDuration)
+import Consensus.Constants (Slot)
 import Consensus.ForkChoice (onBlock, onTick)
-import Consensus.Types (Store (..), Config (..), SignedBeaconBlock (..), BeaconBlock (..), currentSlot)
+import Consensus.Types (Store (..), Config (..), SignedBlock (..), BeaconBlock (..), currentSlot)
 import Network.P2P.Types (P2PHandle (..))
 import Network.P2P.Wire (decodeWire)
+import Consensus.Constants (slotDuration)
 
 -- ---------------------------------------------------------------------------
 -- Types
@@ -85,8 +86,8 @@ applyBlocks env [] _lastSlot = do
 applyBlocks env (raw:rest) _fallbackSlot =
   case decodeWire raw of
     Left err -> pure (Left ("SSZ decode failed: " <> show err))
-    Right sbb -> do
-      let blockSlot = bbSlot (sbbBlock sbb)
+    Right sb -> do
+      let blockSlot = bbSlot (sbMessage sb)
       result <- atomically $ do
         store <- readTVar (seStore env)
         -- Advance time so onBlock doesn't reject the block as "future"
@@ -94,7 +95,7 @@ applyBlocks env (raw:rest) _fallbackSlot =
             genesis = cfgGenesisTime (stConfig store)
             blockTime = genesis + blockSlot * slotSec
             store' = onTick store (max blockTime (stTime store))
-        case onBlock store' sbb of
+        case onBlock store' sb of
           Left err -> pure (Left (show err))
           Right store'' -> do
             writeTVar (seStore env) store''

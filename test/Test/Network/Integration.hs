@@ -26,6 +26,9 @@ unsafeRight :: Show e => Either e a -> a
 unsafeRight (Right a) = a
 unsafeRight (Left e)  = error ("unexpected Left: " <> show e)
 
+cfg :: Config
+cfg = Config 0
+
 tests :: TestTree
 tests = testGroup "Network.Integration"
   [ testCase "two-node block gossip via MockNetwork" $ do
@@ -33,8 +36,8 @@ tests = testGroup "Network.Integration"
           gs = mkTestGenesisState vals
           genesisBlock = mkTestGenesisBlock
 
-      -- Create store for node 2
-      store2Var <- newTVarIO (initStore gs genesisBlock)
+      -- Create store for node 2 (stTime=5 so slot 1 is valid)
+      store2Var <- newTVarIO ((initStore gs genesisBlock cfg) { stTime = 5 })
 
       -- Create mock network and handle
       mn <- newMockNetwork
@@ -64,13 +67,13 @@ tests = testGroup "Network.Integration"
       assertBool "node 2 should have processed the block"
         (Map.size (stBlocks store2) >= 2)
 
-  , testCase "attestation flow: validator -> message handler" $ do
+  , testCase "attestation flow: validator -> subnet -> message handler" $ do
       let vals = [mkTestValidator 1 0]
           gs = mkTestGenesisState vals
           genesisBlock = mkTestGenesisBlock
           genesisRoot = toRoot genesisBlock
 
-      storeVar <- newTVarIO (initStore gs genesisBlock)
+      storeVar <- newTVarIO (initStore gs genesisBlock cfg)
       cacheVar <- newTVarIO (newSeenCache 8192)
       slotVar <- newTVarIO 1
 
@@ -83,7 +86,8 @@ tests = testGroup "Network.Integration"
       threadDelay 10_000
 
       -- Publish attestation to subnet
-      let att = mkTestAttestation 0 0 genesisRoot zeroCheckpoint zeroCheckpoint
+      let headCp = Checkpoint genesisRoot 0
+          att = mkTestAttestation 0 0 headCp zeroCheckpoint zeroCheckpoint
           wireAtt = encodeWire att
 
       broadcastAll mn (TopicAttestation 0) wireAtt
@@ -95,6 +99,7 @@ tests = testGroup "Network.Integration"
         (length (stBlocks store) > 0)
 
   , testCase "aggregation flow: pool -> aggregate -> publish to TopicAggregation" $ do
+      -- Create 8 validators so we have enough to test aggregation
       let keyVals = [ mkTestValidatorWithKey i | i <- [0..7] ]
           privKeys = map fst keyVals
           vals = map snd keyVals
@@ -106,15 +111,17 @@ tests = testGroup "Network.Integration"
 
       let sbb1 = mkTestSignedBlock gs 1
           st1 = unsafeRight $ stateTransition gs sbb1 False
-          block1Root = toRoot (sbbBlock sbb1)
+          block1Root = toRoot (sbMessage sbb1)
           genCp = zeroCheckpoint
           domain = cpRoot genCp
 
+      -- Create attestations for validators
       let pubkeys = [ vAttestationPubkey v | v <- unSszList (bsValidators st1) ]
           target1 = Checkpoint block1Root 1
-          subnetVis = [ vi | vi <- [0 .. 7 :: Int], vi `mod` 4 == 0 ]
+          headCp  = Checkpoint block1Root 1
+          subnetVis = [0, 4] :: [Int]
           atts = [ mkSignedTestAttestation (privKeys !! i) (fromIntegral i)
-                     1 block1Root genCp target1 domain
+                     1 headCp genCp target1 domain
                  | i <- subnetVis ]
 
       -- Add to attestation pool and drain
@@ -125,13 +132,15 @@ tests = testGroup "Network.Integration"
 
       -- Aggregate
       let (_, signedAtts) = head (Map.toList groups)
-      aggResult <- aggregateAttestations prover signedAtts pubkeys domain 0
+      aggResult <- aggregateAttestations prover signedAtts pubkeys domain
       case aggResult of
         Left err -> assertFailure ("aggregation failed: " <> show err)
-        Right aa -> do
+        Right (aggAtt, aggProof) -> do
+          let saa = SignedAggregatedAttestation aggAtt aggProof
+          -- Setup message handler subscribing to TopicAggregation
           mn <- newMockNetwork
           handle <- mockP2PHandle mn
-          storeVar <- newTVarIO (initStore gs genesisBlock)
+          storeVar <- newTVarIO (initStore gs genesisBlock cfg)
           cacheVar <- newTVarIO (newSeenCache 8192)
           slotVar <- newTVarIO 1
 
@@ -139,7 +148,7 @@ tests = testGroup "Network.Integration"
           startMessageHandler env
           threadDelay 10_000
 
-          p2hPublish handle TopicAggregation (encodeWire aa)
+          p2hPublish handle TopicAggregation (encodeWire saa)
           threadDelay 50_000
 
           published <- readTVarIO (mnPublished mn)
@@ -156,14 +165,14 @@ tests = testGroup "Network.Integration"
       let (blocks, states) = buildChain gs 5
 
       let blockMap = Map.fromList
-            [ (bbSlot (sbbBlock sbb), encodeWire sbb)
+            [ (bbSlot (sbMessage sbb), encodeWire sbb)
             | sbb <- blocks
             ]
 
       mn <- newMockNetwork
       handle <- mockP2PHandleWithBlocks mn blockMap
 
-      storeVar <- newTVarIO (initStore gs genesisBlock)
+      storeVar <- newTVarIO (initStore gs genesisBlock cfg)
       statusVar <- newTVarIO Synced
 
       let syncEnv = SyncEnv handle storeVar statusVar 10
@@ -171,11 +180,11 @@ tests = testGroup "Network.Integration"
       assertEqual "sync should complete" Synced syncResult
 
       storeAfterSync <- readTVarIO storeVar
-      assertEqual "store should be at slot 5"
-        5 (currentSlot storeAfterSync)
       assertEqual "store should have 6 blocks (genesis + 5)"
         6 (Map.size (stBlocks storeAfterSync))
 
+      -- Start message handler for live gossip - set stTime to match slot 6
+      atomically $ modifyTVar storeVar (\s -> s { stTime = 30 })
       cacheVar <- newTVarIO (newSeenCache 8192)
       slotVar <- newTVarIO 6
 

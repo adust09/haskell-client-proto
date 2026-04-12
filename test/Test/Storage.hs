@@ -9,7 +9,7 @@ import Test.Tasty
 import Test.Tasty.HUnit
 
 import Consensus.ForkChoice (initStore)
-import Consensus.Types (BeaconState, SignedBeaconBlock (..), Store)
+import Consensus.Types (BeaconState, SignedBlock (..), Store, Config (..))
 import Storage
 import Test.Support.Helpers
     ( buildChain
@@ -30,12 +30,15 @@ tests = testGroup "Storage"
   , testCase "persistence across close/open" testPersistence
   ]
 
-mkEnv :: (BeaconState -> Store -> [SignedBeaconBlock] -> [BeaconState] -> IO a) -> IO a
+cfg :: Config
+cfg = Config 0
+
+mkEnv :: (BeaconState -> Store -> [SignedBlock] -> [BeaconState] -> IO a) -> IO a
 mkEnv action = do
   let vals = [mkTestValidator i (fromIntegral (i - 1)) | i <- [1..4]]
       gs   = mkTestGenesisState vals
       gb   = mkTestGenesisBlock
-      store = initStore gs gb
+      store = initStore gs gb cfg
       (blocks, states) = buildChain gs 3
   action gs store blocks states
 
@@ -43,9 +46,9 @@ mkEnv action = do
 testBlockRoundtrip :: Assertion
 testBlockRoundtrip = mkEnv $ \gs _store blocks _states ->
   withSystemTempDirectory "storage-test" $ \dir ->
-    withStorage dir gs (initStore gs mkTestGenesisBlock) $ \sh -> do
+    withStorage dir gs (initStore gs mkTestGenesisBlock cfg) $ \sh -> do
       let sbb  = head blocks
-          root = toRoot (sbbBlock sbb)
+          root = toRoot (sbMessage sbb)
       putBlock sh root sbb
       result <- getBlock sh root
       result @?= Just sbb
@@ -54,7 +57,7 @@ testBlockRoundtrip = mkEnv $ \gs _store blocks _states ->
 testStateRoundtrip :: Assertion
 testStateRoundtrip = mkEnv $ \gs _store _blocks states ->
   withSystemTempDirectory "storage-test" $ \dir ->
-    withStorage dir gs (initStore gs mkTestGenesisBlock) $ \sh -> do
+    withStorage dir gs (initStore gs mkTestGenesisBlock cfg) $ \sh -> do
       let st   = head states
           root = toRoot st
       putState sh root st
@@ -65,9 +68,9 @@ testStateRoundtrip = mkEnv $ \gs _store _blocks states ->
 testHotCacheHit :: Assertion
 testHotCacheHit = mkEnv $ \gs _store blocks _states ->
   withSystemTempDirectory "storage-test" $ \dir ->
-    withStorage dir gs (initStore gs mkTestGenesisBlock) $ \sh -> do
+    withStorage dir gs (initStore gs mkTestGenesisBlock cfg) $ \sh -> do
       let sbb  = head blocks
-          root = toRoot (sbbBlock sbb)
+          root = toRoot (sbMessage sbb)
       putBlock sh root sbb
       cached <- atomically $ Map.lookup root <$> readTVar (shRecentBlocks sh)
       cached @?= Just sbb
@@ -76,9 +79,9 @@ testHotCacheHit = mkEnv $ \gs _store blocks _states ->
 testColdRead :: Assertion
 testColdRead = mkEnv $ \gs _store blocks _states ->
   withSystemTempDirectory "storage-test" $ \dir ->
-    withStorage dir gs (initStore gs mkTestGenesisBlock) $ \sh -> do
+    withStorage dir gs (initStore gs mkTestGenesisBlock cfg) $ \sh -> do
       let sbb  = head blocks
-          root = toRoot (sbbBlock sbb)
+          root = toRoot (sbMessage sbb)
       putBlock sh root sbb
       -- Evict from cache
       atomically $ writeTVar (shRecentBlocks sh) Map.empty
@@ -90,9 +93,9 @@ testColdRead = mkEnv $ \gs _store blocks _states ->
 testPrune :: Assertion
 testPrune = mkEnv $ \gs _store blocks _states ->
   withSystemTempDirectory "storage-test" $ \dir ->
-    withStorage dir gs (initStore gs mkTestGenesisBlock) $ \sh -> do
+    withStorage dir gs (initStore gs mkTestGenesisBlock cfg) $ \sh -> do
       -- Put all 3 blocks (slots 1, 2, 3)
-      let roots = map (\sbb -> (toRoot (sbbBlock sbb), sbb)) blocks
+      let roots = map (\sbb -> (toRoot (sbMessage sbb), sbb)) blocks
       mapM_ (\(r, sbb) -> putBlock sh r sbb) roots
       -- Prune blocks with slot < 2 (removes slot 1)
       removed <- pruneOldBlocks sh 2
@@ -114,7 +117,7 @@ testConcurrent = do
   let vals = [mkTestValidator i (fromIntegral (i - 1)) | i <- [1..4]]
       gs   = mkTestGenesisState vals
       gb   = mkTestGenesisBlock
-      store = initStore gs gb
+      store = initStore gs gb cfg
       -- Build enough blocks for 4 threads x 10 blocks
       (allBlocks, _) = buildChain gs 40
       chunks = chunksOf 10 allBlocks
@@ -122,10 +125,10 @@ testConcurrent = do
     withStorage dir gs store $ \sh -> do
       -- Concurrent writes
       forConcurrently_ chunks $ \chunk ->
-        mapM_ (\sbb -> putBlock sh (toRoot (sbbBlock sbb)) sbb) chunk
+        mapM_ (\sbb -> putBlock sh (toRoot (sbMessage sbb)) sbb) chunk
       -- Verify all blocks readable
       mapM_ (\sbb -> do
-        let root = toRoot (sbbBlock sbb)
+        let root = toRoot (sbMessage sbb)
         result <- getBlock sh root
         result @?= Just sbb
         ) allBlocks
@@ -135,8 +138,8 @@ testPersistence :: Assertion
 testPersistence = mkEnv $ \gs _store blocks _states ->
   withSystemTempDirectory "storage-test" $ \dir -> do
     let sbb  = head blocks
-        root = toRoot (sbbBlock sbb)
-        store = initStore gs mkTestGenesisBlock
+        root = toRoot (sbMessage sbb)
+        store = initStore gs mkTestGenesisBlock cfg
     -- Write in first session
     withStorage dir gs store $ \sh ->
       putBlock sh root sbb

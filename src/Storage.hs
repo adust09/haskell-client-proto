@@ -29,7 +29,7 @@ import Consensus.Constants (Root, Slot)
 import Consensus.Types
     ( BeaconBlock (..)
     , BeaconState (..)
-    , SignedBeaconBlock (..)
+    , SignedBlock (..)
     , Store
     )
 import SSZ.Common (SszDecode (..), SszEncode (..), mkBytesN, unBytesN)
@@ -44,7 +44,7 @@ data StorageHandle = StorageHandle
   { shDB           :: !DB
   , shHotState     :: !(TVar BeaconState)
   , shHotStore     :: !(TVar Store)
-  , shRecentBlocks :: !(TVar (Map Root SignedBeaconBlock))
+  , shRecentBlocks :: !(TVar (Map Root SignedBlock))
   }
 
 -- ---------------------------------------------------------------------------
@@ -113,14 +113,14 @@ withStorage path initialState initialStore action =
 
 -- | Persist a signed block to RocksDB and cache it in the TVar.
 -- Write ordering: RocksDB first, then TVar (crash-safe).
-putBlock :: StorageHandle -> Root -> SignedBeaconBlock -> IO ()
+putBlock :: StorageHandle -> Root -> SignedBlock -> IO ()
 putBlock sh root block = do
   Rocks.put (shDB sh) (blockKey root) (sszEncode block)
   atomically $ modifyTVar' (shRecentBlocks sh) (Map.insert root block)
 
 -- | Retrieve a block: TVar cache first, then RocksDB fallback.
 -- Decode errors are treated as missing (returns Nothing).
-getBlock :: StorageHandle -> Root -> IO (Maybe SignedBeaconBlock)
+getBlock :: StorageHandle -> Root -> IO (Maybe SignedBlock)
 getBlock sh root = do
   cached <- atomically $ Map.lookup root <$> readTVar (shRecentBlocks sh)
   case cached of
@@ -150,7 +150,7 @@ getState sh root = do
 
 -- | Write a finalized block: stores the block, the slot->root index, and
 -- updates the meta:finalized_slot pointer. Uses a batch write for atomicity.
-putFinalizedBlock :: StorageHandle -> Slot -> Root -> SignedBeaconBlock -> IO ()
+putFinalizedBlock :: StorageHandle -> Slot -> Root -> SignedBlock -> IO ()
 putFinalizedBlock sh slot root block =
   Rocks.write (shDB sh)
     [ Put (blockKey root) (sszEncode block)
@@ -160,7 +160,7 @@ putFinalizedBlock sh slot root block =
     ]
 
 -- | Look up a finalized block by slot: slot -> root index, then root -> block.
-getFinalizedBlock :: StorageHandle -> Slot -> IO (Maybe SignedBeaconBlock)
+getFinalizedBlock :: StorageHandle -> Slot -> IO (Maybe SignedBlock)
 getFinalizedBlock sh slot = do
   mRootBs <- Rocks.get (shDB sh) (finalizedKey slot)
   case mRootBs of
@@ -202,4 +202,4 @@ pruneOldBlocks sh threshold = atomically $ do
   writeTVar (shRecentBlocks sh) keep
   pure (Map.size old)
   where
-    isOld sbb = bbSlot (sbbBlock sbb) < threshold
+    isOld sbb = bbSlot (sbMessage sbb) < threshold

@@ -125,7 +125,8 @@ initializeGenesis :: GenesisConfig -> (BeaconState, Store)
 initializeGenesis gc =
   let gs    = initializeGenesisState gc
       gb    = mkGenesisBlock
-      store = initStore gs gb
+      cfg   = bsConfig gs
+      store = initStore gs gb cfg
   in  (gs, store)
 
 -- ---------------------------------------------------------------------------

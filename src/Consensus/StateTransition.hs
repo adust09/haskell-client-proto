@@ -6,7 +6,6 @@ module Consensus.StateTransition
   ( -- * Errors
     StateTransitionError (..)
     -- * Validator helpers
-  , isActiveValidator
   , getProposerIndex
     -- * Per-slot processing
   , processSlot
@@ -26,9 +25,11 @@ import Data.Word (Word64)
 import Consensus.Constants
 import Consensus.Types
 import SSZ.Bitlist (Bitlist, bitlistLen, getBitlistBit, mkBitlist)
-import SSZ.Common (mkBytesN, zeroN)
+import SSZ.Common (mkBytesN, unBytesN, zeroN)
 import SSZ.List (mkSszList, unSszList)
 import SSZ.Merkleization (SszHashTreeRoot (..))
+import qualified Crypto.LeanSig as LeanSig
+import Crypto.SigningRoot (computeSigningRoot)
 
 -- ---------------------------------------------------------------------------
 -- Errors
@@ -48,10 +49,6 @@ data StateTransitionError
 -- ---------------------------------------------------------------------------
 -- Validator helpers
 -- ---------------------------------------------------------------------------
-
--- | All validators are always active in leanSpec (no lifecycle).
-isActiveValidator :: Validator -> Slot -> Bool
-isActiveValidator _ _ = True
 
 -- | Proposer selection: slot % numValidators.
 getProposerIndex :: BeaconState -> ValidatorIndex
@@ -260,13 +257,31 @@ countSlotVotes numValidators justBits justBitsLen slotIdx =
 
 stateTransition
   :: BeaconState
-  -> SignedBeaconBlock
+  -> SignedBlock
   -> Bool
   -> Either StateTransitionError BeaconState
-stateTransition bs signedBlock _validateSigs = do
-  let block = sbbBlock signedBlock
+stateTransition bs signedBlock validateSigs = do
+  let block = sbMessage signedBlock
   bs1 <- processSlots bs (bbSlot block)
   bs2 <- processBlockHeader bs1 block
+
+  -- Verify block proposer signature if requested
+  if validateSigs
+    then do
+      let proposerIdx = fromIntegral (bbProposerIndex block)
+          validators = unSszList (bsValidators bs2)
+      case safeIndex validators proposerIdx of
+        Nothing -> Left (BlockProcessingError "proposer index out of range")
+        Just proposer -> do
+          let domain = toRoot bs2
+              signingRoot = computeSigningRoot block domain
+              message = unBytesN signingRoot
+              proposerSig = bsigProposerSignature (sbSignature signedBlock)
+          case LeanSig.verify (vProposalPubkey proposer) message proposerSig of
+            Left _      -> Left (BlockProcessingError "block signature verification error")
+            Right False -> Left (BlockProcessingError "invalid block signature")
+            Right True  -> Right ()
+    else Right ()
 
   let atts = unSszList (bbbAttestations (bbBody block))
   bs3 <- processAttestations bs2 atts
@@ -286,3 +301,8 @@ toRoot :: SszHashTreeRoot a => a -> Root
 toRoot a = case mkBytesN @32 (hashTreeRoot a) of
   Right r -> r
   Left _  -> error "toRoot: hashTreeRoot did not produce 32 bytes"
+
+safeIndex :: [a] -> Int -> Maybe a
+safeIndex xs i
+  | i < 0 || i >= length xs = Nothing
+  | otherwise                = Just (xs !! i)

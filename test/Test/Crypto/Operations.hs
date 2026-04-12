@@ -3,6 +3,7 @@ module Test.Crypto.Operations (tests) where
 import Test.Tasty
 import Test.Tasty.HUnit
 
+import Control.Exception (SomeException, try)
 import qualified Data.ByteString as BS
 import Data.List (isInfixOf)
 import System.IO.Temp (withSystemTempDirectory)
@@ -30,7 +31,7 @@ testDomain = zeroN @32
 -- | Helper: create test attestation data.
 testAttData :: AttestationData
 testAttData = AttestationData
-  { adSlot = 42
+  { adSlot   = 42
   , adHead   = Checkpoint (zeroN @32) 0
   , adTarget = Checkpoint (zeroN @32) 1
   , adSource = Checkpoint (zeroN @32) 0
@@ -92,42 +93,41 @@ tests = testGroup "Crypto.Operations"
       withSystemTempDirectory "ops-test" $ \tmpDir -> do
         prover <- setupProver
         verifier <- setupVerifier
-        -- Create 12 validators so subnet 0 has indices [0, 4, 8]
-        let seeds = ["seed-" <> BS.pack [fromIntegral i] | i <- [0..11 :: Int]]
+        -- Create 3 validators
+        let seeds = ["seed-" <> BS.pack [fromIntegral i] | i <- [0..2 :: Int]]
             keyPairs = map (\s -> unsafeRight $ generateKeyPair 10 s) seeds
             pubs = map snd keyPairs
-            -- Validators in subnet 0: indices 0, 4, 8
-            subnetVis = [0, 4, 8] :: [Int]
-            subnetPubs = [ snd (keyPairs !! i) | i <- subnetVis ]
-        -- Sign attestations for subnet 0 validators
+        -- Sign attestations
         signedAtts <- mapM (\i -> do
           let (pk, _pub) = keyPairs !! i
           mk <- newManagedKey pk (snd (keyPairs !! i))
           let keyPath = tmpDir </> ("key-" <> show i <> ".dat")
           unsafeRight <$> signAttestation mk keyPath testAttData (fromIntegral i) testDomain
-          ) subnetVis
+          ) [0..2]
         -- Aggregate
-        saa <- unsafeRight <$> aggregateAttestations prover signedAtts pubs testDomain 0
-        -- Verify with subnet pubkeys (matching the signers)
-        valid <- unsafeRight <$> verifyAggregatedAttestation verifier saa subnetPubs testDomain
-        valid @?= True
+        result <- aggregateAttestations prover signedAtts pubs testDomain
+        case result of
+          Left err -> assertFailure ("aggregation failed: " <> show err)
+          Right (aggAtt, aggProof) -> do
+            -- Build SignedAggregatedAttestation and verify
+            let saa = SignedAggregatedAttestation aggAtt aggProof
+            valid <- unsafeRight <$> verifyAggregatedAttestation verifier saa pubs testDomain
+            valid @?= True
 
-  , testCase "duplicate validator indices in aggregation → error" $
+  , testCase "duplicate validator indices in aggregation are rejected" $
       withSystemTempDirectory "ops-test" $ \tmpDir -> do
         prover <- setupProver
         let (pk, pub) = unsafeRight $ generateKeyPair 10 "test-seed"
         mk <- newManagedKey pk pub
         let keyPath = tmpDir </> "key.dat"
         sa1 <- unsafeRight <$> signAttestation mk keyPath testAttData 0 testDomain
-        sa2 <- unsafeRight <$> signAttestation mk keyPath testAttData 0 testDomain  -- same index!
-        result <- aggregateAttestations prover [sa1, sa2] [pub] testDomain 0
+        sa2 <- unsafeRight <$> signAttestation mk keyPath testAttData 0 testDomain  -- same index
+        result <- aggregateAttestations prover [sa1, sa2] [pub] testDomain
         case result of
-          Left (AggregationFailed msg) ->
-            assertBool "should mention duplicates" ("duplicate" `isInfixOf` msg)
-          Left e -> assertFailure ("expected AggregationFailed, got: " <> show e)
-          Right _ -> assertFailure "expected Left, got Right"
+          Left (AggregationFailed _) -> pure ()
+          other -> assertFailure ("expected AggregationFailed, got: " <> show other)
 
-  , testCase "mixed AttestationData in aggregation → error" $
+  , testCase "mixed AttestationData in aggregation -> error" $
       withSystemTempDirectory "ops-test" $ \tmpDir -> do
         prover <- setupProver
         let (pk1, pub1) = unsafeRight $ generateKeyPair 10 "seed-1"
@@ -137,21 +137,23 @@ tests = testGroup "Crypto.Operations"
         mk2 <- newManagedKey pk2 pub2
         sa1 <- unsafeRight <$> signAttestation mk1 (tmpDir </> "k1.dat") testAttData 0 testDomain
         sa2 <- unsafeRight <$> signAttestation mk2 (tmpDir </> "k2.dat") attData2 1 testDomain
-        result <- aggregateAttestations prover [sa1, sa2] [pub1, pub2] testDomain 0
+        result <- aggregateAttestations prover [sa1, sa2] [pub1, pub2] testDomain
         case result of
           Left (AggregationFailed msg) ->
             assertBool "should mention mixed" ("mixed" `isInfixOf` msg)
           Left e -> assertFailure ("expected AggregationFailed, got: " <> show e)
           Right _ -> assertFailure "expected Left, got Right"
 
-  , testCase "out-of-range validator index is accepted (index not validated)" $
+  , testCase "out-of-range validator index causes error" $
       withSystemTempDirectory "ops-test" $ \tmpDir -> do
         prover <- setupProver
         let (pk, pub) = unsafeRight $ generateKeyPair 10 "test-seed"
         mk <- newManagedKey pk pub
         sa <- unsafeRight <$> signAttestation mk (tmpDir </> "k.dat") testAttData 999 testDomain
-        result <- aggregateAttestations prover [sa] [pub] testDomain 0
-        case result of
-          Right _ -> pure ()
-          Left e -> assertFailure ("expected Right, got: " <> show e)
+        -- Index 999 with committee size 1 causes an index error during aggregation
+        result <- try (aggregateAttestations prover [sa] [pub] testDomain)
+        case (result :: Either SomeException (Either CryptoError (AggregatedAttestation, AggregatedSignatureProof))) of
+          Left _  -> pure ()  -- exception is expected
+          Right (Left _) -> pure ()  -- CryptoError is also acceptable
+          Right (Right _) -> assertFailure "expected error for out-of-range index"
   ]

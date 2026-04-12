@@ -11,19 +11,21 @@ module Crypto.Operations
 
 import Data.List (nub)
 
-import Consensus.Constants (Domain, SubnetId, ValidatorIndex)
+import Consensus.Constants (Domain, ValidatorIndex)
 import Consensus.Types
   ( AttestationData
   , AggregatedAttestation (..)
   , BeaconBlock
   , BlockSignatures (..)
   , SignedAttestation (..)
-  , SignedBeaconBlock (..)
+  , SignedAggregatedAttestation (..)
+  , AggregatedSignatureProof (..)
+  , SignedBlock (..)
   , XmssPubkey (..)
   )
 import Crypto.Error (CryptoError (..))
 import Crypto.KeyManager (ManagedKey, managedSign)
-import Crypto.LeanMultisig (ProverContext, VerifierContext)
+import Crypto.LeanMultisig (ProverContext, VerifierContext, aggregate, verifyAggregation)
 import qualified Crypto.LeanSig as LeanSig
 import Crypto.SigningRoot (computeSigningRoot)
 import SSZ.Bitlist (mkBitlist)
@@ -48,9 +50,9 @@ verifyAttestation sa pubkey domain =
       message = unBytesN signingRoot
   in  LeanSig.verify pubkey message (saSignature sa)
 
--- | Sign a beacon block with a managed key, creating BlockSignatures.
+-- | Sign a beacon block with a managed key, producing a SignedBlock.
 signBlock :: ManagedKey -> FilePath -> BeaconBlock -> Domain
-         -> IO (Either CryptoError SignedBeaconBlock)
+         -> IO (Either CryptoError SignedBlock)
 signBlock mk persistPath block domain = do
   let signingRoot = computeSigningRoot block domain
       message = unBytesN signingRoot
@@ -62,21 +64,21 @@ signBlock mk persistPath block domain = do
             Right sl -> sl
             Left _   -> error "signBlock: mkSszList"
           blockSigs = BlockSignatures emptyAttSigs sig
-      in  Right (SignedBeaconBlock block blockSigs)
+      in  Right (SignedBlock block blockSigs)
 
--- | Verify a beacon block proposer signature.
-verifyBlock :: SignedBeaconBlock -> XmssPubkey -> Domain -> Either CryptoError Bool
-verifyBlock sbb pubkey domain =
-  let signingRoot = computeSigningRoot (sbbBlock sbb) domain
+-- | Verify a signed block's proposer signature.
+verifyBlock :: SignedBlock -> XmssPubkey -> Domain -> Either CryptoError Bool
+verifyBlock sb pubkey domain =
+  let signingRoot = computeSigningRoot (sbMessage sb) domain
       message = unBytesN signingRoot
-  in  LeanSig.verify pubkey message (bsigProposerSignature (sbbSignature sbb))
+  in  LeanSig.verify pubkey message (bsigProposerSignature (sbSignature sb))
 
 -- | Aggregate multiple signed attestations into a single aggregated attestation.
 -- All attestations must share the same AttestationData.
-aggregateAttestations :: ProverContext -> [SignedAttestation] -> [XmssPubkey] -> Domain -> SubnetId
-                      -> IO (Either CryptoError AggregatedAttestation)
-aggregateAttestations _ [] _ _ _ = pure (Left (AggregationFailed "empty attestation list"))
-aggregateAttestations _prover attestations _committee _domain _subnetId = do
+aggregateAttestations :: ProverContext -> [SignedAttestation] -> [XmssPubkey] -> Domain
+                      -> IO (Either CryptoError (AggregatedAttestation, AggregatedSignatureProof))
+aggregateAttestations _ [] _ _ = pure (Left (AggregationFailed "empty attestation list"))
+aggregateAttestations prover attestations committee domain = do
   let attDatas = map saData attestations
       firstData = head attDatas
   if not (all (== firstData) attDatas)
@@ -86,14 +88,27 @@ aggregateAttestations _prover attestations _committee _domain _subnetId = do
       if length (nub valIndices) /= length valIndices
         then pure (Left (AggregationFailed "duplicate validator indices"))
         else do
-          let numVals = length valIndices
-              bits = [ fromIntegral i `elem` valIndices | i <- [(0 :: Int) .. numVals - 1] ]
+          let committeeSize = length committee
+              bits = [fromIntegral i `elem` valIndices | i <- [0 .. committeeSize - 1]]
           case mkBitlist bits of
             Left _sszErr -> pure (Left (AggregationFailed "bitlist construction failed"))
-            Right bitlist -> pure (Right (AggregatedAttestation bitlist firstData))
+            Right bitlist -> do
+              let signers = [ (committee !! fromIntegral (saValidatorIndex att), saSignature att)
+                            | att <- attestations ]
+                  signingRoot = computeSigningRoot firstData domain
+                  message = unBytesN signingRoot
+              result <- aggregate prover signers message
+              pure $ case result of
+                Left e -> Left e
+                Right proof ->
+                  let aggAtt = AggregatedAttestation bitlist firstData
+                  in  Right (aggAtt, proof)
 
 -- | Verify an aggregated attestation.
-verifyAggregatedAttestation :: VerifierContext -> AggregatedAttestation
+verifyAggregatedAttestation :: VerifierContext -> SignedAggregatedAttestation
                             -> [XmssPubkey] -> Domain -> IO (Either CryptoError Bool)
-verifyAggregatedAttestation _verifier _aa _pubkeys _domain =
-  pure (Right True)
+verifyAggregatedAttestation verifier saa pubkeys domain = do
+  let signingRoot = computeSigningRoot (aaData (saaData saa)) domain
+      message = unBytesN signingRoot
+      proof = saaProof saa
+  verifyAggregation verifier proof pubkeys message

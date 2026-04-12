@@ -8,7 +8,7 @@ module NodeTypes
 
 import Consensus.Constants (Slot)
 import Consensus.Types
-  ( SignedBeaconBlock
+  ( SignedBlock
   , SignedAttestation
   , AggregatedAttestation
   )
@@ -16,14 +16,14 @@ import Consensus.Types
 -- | Messages for the blockchain (fork-choice) actor.
 data BlockchainMsg
   = BcSlotTick !Slot
-  | BcNewBlock !SignedBeaconBlock
+  | BcNewBlock !SignedBlock
   | BcNewAttestation !SignedAttestation
   | BcNewAggregation !AggregatedAttestation
   | BcShutdown
 
 -- | Messages for the P2P networking actor.
 data P2PMsg
-  = P2PPublishBlock !SignedBeaconBlock
+  = P2PPublishBlock !SignedBlock
   | P2PPublishAttestation !SignedAttestation
   | P2PPublishAggregation !AggregatedAttestation
   | P2PShutdown

@@ -62,14 +62,13 @@ aggregate _ signers message = do
 verifyAggregation :: VerifierContext -> AggregatedSignatureProof -> [XmssPubkey] -> ByteString
                   -> IO (Either CryptoError Bool)
 verifyAggregation _ asp pubkeys message = pure $ do
-  let proof = unLeanMultisigProof (aspProof asp)
-  -- Parse the proof
-  if BS.length proof < 36
+  let proofBytes = unLeanMultisigProof (aspProof asp)
+  if BS.length proofBytes < 36
     then Right False
     else do
-      let storedHash = BS.take 32 proof
-          count = decodeLE32 (BS.take 4 (BS.drop 32 proof))
-          digestsBytes = BS.drop 36 proof
+      let storedHash = BS.take 32 proofBytes
+          count = decodeLE32 (BS.take 4 (BS.drop 32 proofBytes))
+          digestsBytes = BS.drop 36 proofBytes
           expectedDigestsLen = fromIntegral count * 32
       if BS.length digestsBytes /= expectedDigestsLen
         then Right False
@@ -85,18 +84,15 @@ verifyAggregation _ asp pubkeys message = pure $ do
 -- Internal helpers
 -- ---------------------------------------------------------------------------
 
--- | Verify a single signer and produce a signature digest.
 verifySigner :: ByteString -> (XmssPubkey, XmssSignature) -> Either CryptoError ByteString
 verifySigner message (pubkey, sig) =
   case LeanSig.verify pubkey message sig of
     Left e -> Left e
     Right False -> Left InvalidSignature
     Right True ->
-      -- sigDigest = SHA-256(pubkey ++ sig[0..63])
       let sigDigest = sha256 (unXmssPubkey pubkey <> BS.take 64 (unXmssSignature sig))
       in  Right sigDigest
 
--- | Compute the aggregate hash from pubkeys, digests, message, and count.
 computeAggregateHash :: [ByteString] -> [ByteString] -> ByteString -> Word32 -> ByteString
 computeAggregateHash pubkeyBytes digests message count =
   sha256 ("AGG" <> BS.concat pubkeyBytes <> BS.concat digests <> message <> encodeLE32 count)

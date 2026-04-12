@@ -18,7 +18,7 @@ unsafeRight (Left e)  = error ("expected Right, got Left: " ++ show e)
 zeroRoot :: Root
 zeroRoot = zeroN @32
 
--- | Create a zero Checkpoint.
+-- | Create a zero Checkpoint (root before slot per leanSpec).
 zeroCheckpoint :: Checkpoint
 zeroCheckpoint = Checkpoint zeroRoot 0
 
@@ -56,9 +56,16 @@ tests = testGroup "Consensus.Types"
           -- vAttestationPubkey(52) + vProposalPubkey(52) + vIndex(8) = 112
           let expectedSize = fromIntegral xmssPubkeySize + fromIntegral xmssPubkeySize + 8
           sszFixedSize @Validator @?= Just expectedSize
+      , testCase "Config is fixed-size, 8 bytes" $ do
+          sszFixedSize @Config @?= Just 8
+          sszIsFixedSize @Config @?= True
+      , testCase "BlockSignatures is variable-size" $
+          sszIsFixedSize @BlockSignatures @?= False
+      , testCase "SignedBlock is variable-size" $
+          sszIsFixedSize @SignedBlock @?= False
       ]
   , testGroup "roundtrip"
-      [ testCase "Checkpoint" $ do
+      [ testCase "Checkpoint (root before slot)" $ do
           let root = unsafeRight $ mkBytesN @32 (BS.pack [1..32])
               cp = Checkpoint root 42
           sszDecode (sszEncode cp) @?= Right cp
@@ -79,6 +86,9 @@ tests = testGroup "Consensus.Types"
           let pk = unsafeRight $ mkXmssPubkey (BS.replicate xmssPubkeySize 0x01)
               v = Validator pk pk 0
           sszDecode (sszEncode v) @?= Right v
+      , testCase "Config" $ do
+          let cfg = Config 1234567890
+          sszDecode (sszEncode cfg) @?= Right cfg
       , testCase "AggregatedSignatureProof (empty)" $ do
           let asp = AggregatedSignatureProof (LeanMultisigProof "")
           sszDecode (sszEncode asp) @?= Right asp
@@ -87,7 +97,7 @@ tests = testGroup "Consensus.Types"
           sszDecode (sszEncode asp) @?= Right asp
       ]
   , testGroup "hashTreeRoot"
-      [ testCase "Checkpoint hashTreeRoot" $ do
+      [ testCase "Checkpoint hashTreeRoot (root before slot)" $ do
           let cp = Checkpoint zeroRoot 0
               rootRoot = hashTreeRoot zeroRoot
               slotRoot = hashTreeRoot (0 :: Word64)
@@ -101,7 +111,7 @@ tests = testGroup "Consensus.Types"
                          , hashTreeRoot (bbhStateRoot bbh)
                          , hashTreeRoot (bbhBodyRoot bbh)
                          ]
-          -- 5 fields → merkleize with limit=5
+          -- 5 fields -> merkleize with limit=5
           hashTreeRoot bbh @?= merkleize allRoots 5
       ]
   , testGroup "constants"
@@ -111,5 +121,7 @@ tests = testGroup "Consensus.Types"
           slotsToFinality @?= 3
       , testCase "xmssSignatureSize == 3112" $
           xmssSignatureSize @?= 3112
+      , testCase "xmssPubkeySize == 52" $
+          xmssPubkeySize @?= 52
       ]
   ]

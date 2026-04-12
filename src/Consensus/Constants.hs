@@ -1,4 +1,5 @@
 -- | Consensus protocol constants and type aliases for pq-devnet-3.
+-- Aligned with leanSpec formal specification.
 module Consensus.Constants
   ( -- * Type aliases
     Slot
@@ -11,11 +12,14 @@ module Consensus.Constants
   , Domain
   , Version
   , DomainType
+  , Interval
     -- * Timing
   , slotDuration
   , networkDelayBound
+  , INTERVALS_PER_SLOT
     -- * Finality
   , slotsToFinality
+  , JUSTIFICATION_LOOKBACK_SLOTS
     -- * Type-level constants (leanSpec)
   , MAX_ATTESTATIONS
   , HISTORICAL_ROOTS_LIMIT
@@ -61,6 +65,7 @@ type Root           = Bytes32
 type Domain         = Bytes32
 type Version        = Bytes4
 type DomainType     = Bytes4
+type Interval       = Word64
 
 -- ---------------------------------------------------------------------------
 -- Timing
@@ -85,6 +90,12 @@ slotsToFinality = 3
 -- ---------------------------------------------------------------------------
 -- Type-level constants for SSZ collections (aligned with leanSpec config.py)
 -- ---------------------------------------------------------------------------
+
+-- | Intervals per slot (leanSpec: 5).
+type INTERVALS_PER_SLOT = 5
+
+-- | Justification lookback slots (leanSpec: 3).
+type JUSTIFICATION_LOOKBACK_SLOTS = 3
 
 type MAX_ATTESTATIONS         = 4096
 type HISTORICAL_ROOTS_LIMIT   = 262144  -- 2^18

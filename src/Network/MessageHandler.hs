@@ -24,8 +24,8 @@ import Data.Map.Strict (Map)
 import Data.Sequence (Seq)
 import qualified Data.Sequence as Seq
 
-import Consensus.Constants (Slot, SubnetId, slotDuration)
-import Consensus.ForkChoice (onBlock, onTick)
+import Consensus.Constants (Slot, SubnetId)
+import Consensus.ForkChoice (onBlock, onAttestation)
 import Consensus.Types
 import Crypto.Hashing (sha256)
 import Crypto.LeanMultisig (VerifierContext)
@@ -38,7 +38,7 @@ import Network.P2P.Wire (decodeWire)
 
 -- | Decoded gossip message variants.
 data GossipMessage
-  = GossipBlock !SignedBeaconBlock
+  = GossipBlock !SignedBlock
   | GossipAttestation !SignedAttestation !SubnetId
   | GossipAggregation !AggregatedAttestation
   deriving stock (Show)
@@ -91,35 +91,31 @@ evictOldest cache =
 -- ---------------------------------------------------------------------------
 
 -- | Validate a gossiped block against the current store.
-validateBlock :: Store -> SignedBeaconBlock -> Slot -> ValidationResult
-validateBlock store sbb curSlot =
-  let block = sbbBlock sbb
+validateBlock :: Store -> SignedBlock -> Slot -> ValidationResult
+validateBlock store sb curSlot =
+  let block = sbMessage sb
       blockSlot = bbSlot block
       parentRoot = bbParentRoot block
   in  if blockSlot > curSlot + 1
         then Reject
         else if not (Map.member parentRoot (stBlocks store))
           then Ignore
-          else let slotSec = fromIntegral (slotDuration `div` 1_000_000)
-                   genesis = cfgGenesisTime (stConfig store)
-                   slotTime = genesis + curSlot * slotSec
-                   store' = onTick store (max slotTime (stTime store))
-               in  case onBlock store' sbb of
-                     Left _  -> Reject
-                     Right _ -> Accept
+          else case onBlock store sb of
+            Left _  -> Reject
+            Right _ -> Accept
 
 -- | Validate a gossiped individual attestation.
--- In leanSpec, individual attestations are not processed by the store.
--- We validate slot range only.
-validateAttestation :: Store -> SignedAttestation -> Slot -> ValidationResult
-validateAttestation _store sa curSlot =
+validateAttestation :: Store -> SignedAttestation -> SubnetId -> Slot -> ValidationResult
+validateAttestation store sa _expectedSubnet curSlot =
   let ad = saData sa
       attSlot = adSlot ad
   in  if attSlot > curSlot
         then Reject
         else if attSlot + 4 < curSlot
           then Ignore
-          else Accept
+          else case onAttestation store sa of
+            Left _  -> Reject
+            Right _ -> Accept
 
 -- ---------------------------------------------------------------------------
 -- Handler
@@ -148,7 +144,7 @@ startMessageHandler env = do
   -- Subscribe to attestation subnets 0..3
   mapM_ (\sid ->
     p2hSubscribe (mhP2PHandle env) (TopicAttestation sid) $ \raw ->
-      handleAttestationMessage env raw
+      handleAttestationMessage env sid raw
     ) [0..3]
 
 handleBlockMessage :: MessageHandlerEnv -> ByteString -> IO ()
@@ -162,23 +158,35 @@ handleBlockMessage env raw = do
     then pure ()
     else case decodeWire raw of
       Left _ -> pure ()
-      Right sbb -> do
+      Right sb -> do
         store <- readTVarIO (mhStore env)
         slot <- readTVarIO (mhCurrentSlot env)
-        case validateBlock store sbb slot of
+        case validateBlock store sb slot of
           Accept -> atomically $ do
             s <- readTVar (mhStore env)
-            let slotSec = fromIntegral (slotDuration `div` 1_000_000)
-                genesis = cfgGenesisTime (stConfig s)
-                slotTime = genesis + slot * slotSec
-                s' = onTick s (max slotTime (stTime s))
-            case onBlock s' sbb of
-              Right s'' -> writeTVar (mhStore env) s''
-              Left _    -> pure ()
+            case onBlock s sb of
+              Right s' -> writeTVar (mhStore env) s'
+              Left _   -> pure ()
           _ -> pure ()
 
-handleAttestationMessage :: MessageHandlerEnv -> ByteString -> IO ()
-handleAttestationMessage _env _raw =
-  -- In leanSpec, individual attestations are not processed by the store.
-  -- Attestation data is extracted from blocks during onBlock.
-  pure ()
+handleAttestationMessage :: MessageHandlerEnv -> SubnetId -> ByteString -> IO ()
+handleAttestationMessage env subnetId raw = do
+  isDup <- atomically $ do
+    cache <- readTVar (mhSeenCache env)
+    let (seen, cache') = markSeen raw cache
+    writeTVar (mhSeenCache env) cache'
+    pure seen
+  if isDup
+    then pure ()
+    else case decodeWire raw of
+      Left _ -> pure ()
+      Right sa -> do
+        store <- readTVarIO (mhStore env)
+        slot <- readTVarIO (mhCurrentSlot env)
+        case validateAttestation store sa subnetId slot of
+          Accept -> atomically $ do
+            s <- readTVar (mhStore env)
+            case onAttestation s sa of
+              Right s' -> writeTVar (mhStore env) s'
+              Left _   -> pure ()
+          _ -> pure ()
